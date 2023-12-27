@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(go2_demo)
+project(go2_legged_real)
 
 # Default to C99
 if(NOT CMAKE_C_STANDARD)

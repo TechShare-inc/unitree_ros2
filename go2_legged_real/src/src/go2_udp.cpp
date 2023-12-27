@@ -8,6 +8,7 @@
 #include "unitree_api/msg/request.hpp"
 #include "common/ros2_sport_client.h"
 #include "geometry_msgs/msg/twist.hpp"
+#include "unitree_go/msg//wireless_controller.hpp"
 
 
 using std::placeholders::_1;
@@ -17,12 +18,18 @@ class soprt_request : public rclcpp::Node
 public:
     soprt_request() : Node("req_sender")
     {
-        // the state_suber is set to subscribe "sportmodestate" topic
-        state_suber = this->create_subscription<unitree_go::msg::SportModeState>(
-            "sportmodestate", 10, std::bind(&soprt_request::state_callback, this, _1));
-        cmd_vel_sub = this->create_subscription<geometry_msgs::msg::Twist>(
-            "cmd_vel", 1, std::bind(&soprt_request::cmdVelCallback, this, std::placeholders::_1));
-
+        // // the state_suber is set to subscribe "sportmodestate" topic
+        // state_suber = this->create_subscription<unitree_go::msg::SportModeState>(
+        //     "sportmodestate", 10, std::bind(&soprt_request::state_callback, this, _1));
+        this->declare_parameter<std::string>("cmd_vel_topic", "go2_cmd_vel");
+                // 2. Retrieve the parameter value
+        std::string cmd_vel_topic;
+        this->get_parameter("cmd_vel_topic", cmd_vel_topic);
+        cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
+            cmd_vel_topic, 1, std::bind(&soprt_request::cmdVelCallback, this, std::placeholders::_1));
+        // the cmd_puber is set to subscribe "/wirelesscontroller" topic
+        wireless_sub_ = this->create_subscription<unitree_go::msg::WirelessController>(
+            "/wirelesscontroller", 10, std::bind(&soprt_request::wirelessControllerCallback, this, _1));
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
         // timer_ = this->create_wall_timer(std::chrono::milliseconds(int(dt * 1000)), std::bind(&soprt_request::timer_callback, this));
@@ -36,25 +43,23 @@ private:
         
         sport_req.Move(req, msg->linear.x, msg->linear.y, msg->angular.z);
         req_puber->publish(req);
-    };
+    }
 
-    void state_callback(unitree_go::msg::SportModeState::SharedPtr data)
+    void wirelessControllerCallback(unitree_go::msg::WirelessController::SharedPtr data)
     {
-        // Get current position of robot when t<0
-        // This position is used as the initial coordinate system
+        // lx: Left joystick x value
+        // ly: Left joystick y value
+        // rx: Right joystick x value
+        // ry: Right joystick y value
+        // keys value
 
-        if (t < 0)
-        {
-            // Get initial position
-            px0 = data->position[0];
-            py0 = data->position[1];
-            yaw0 = data->imu_state.rpy[2];
-            std::cout << px0 << ", " << py0 << ", " << yaw0 << std::endl;
-        }
+        RCLCPP_INFO(this->get_logger(), "Wireless controller -- lx: %f; ly: %f; rx: %f; ry: %f; key value: %d",
+                    data->lx, data->ly, data->rx, data->ry, data->keys);
     }
 
     rclcpp::Subscription<unitree_go::msg::SportModeState>::SharedPtr state_suber;
-    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
+    rclcpp::Subscription<unitree_go::msg::WirelessController>::SharedPtr wireless_sub_;
 
     rclcpp::TimerBase::SharedPtr timer_; // ROS2 timer
     rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr req_puber;
@@ -80,3 +85,5 @@ int main(int argc, char *argv[])
     rclcpp::shutdown();
     return 0;
 }
+
+
