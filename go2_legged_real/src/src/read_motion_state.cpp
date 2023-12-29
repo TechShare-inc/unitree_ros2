@@ -23,13 +23,13 @@ public:
 
     // The suber  callback function is bind to motion_state_suber::topic_callback
     suber = this->create_subscription<unitree_go::msg::SportModeState>(
-        topic_name, 10, std::bind(&motion_state_suber::topic_callback, this, _1));
+        topic_name, 100, std::bind(&motion_state_suber::topic_callback, this, _1));
   }
 
 private:
   void topic_callback(unitree_go::msg::SportModeState::SharedPtr data)
   {
-    // Info motion states
+    // Info motion states00
     // Gait type and foot raise height
     // Robot position (Odometry frame)
     // Robot velocity (Odometry frame)

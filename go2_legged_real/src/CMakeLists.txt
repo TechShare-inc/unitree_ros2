@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(go2_demo)
+project(go2_legged_real)
 
 # Default to C99
 if(NOT CMAKE_C_STANDARD)
@@ -26,6 +26,7 @@ set (
   rclcpp
   std_msgs
   rosbag2_cpp
+  sensor_msgs
 )
 
 # find dependencies
@@ -35,6 +36,7 @@ find_package(unitree_api REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 add_executable(low_level_ctrl src/low_level_ctrl.cpp src/common/motor_crc.cpp)
 add_executable(read_low_state src/read_low_state.cpp)
@@ -42,6 +44,7 @@ add_executable(read_motion_state src/read_motion_state.cpp)
 add_executable(read_wireless_controller src/read_wireless_controller.cpp)
 add_executable(record_bag src/record_bag.cpp)
 add_executable(sport_mode_ctrl src/sport_mode_ctrl.cpp src/common/ros2_sport_client.cpp)
+add_executable(go2_udp src/go2_udp.cpp src/common/ros2_sport_client.cpp)
 
 ament_target_dependencies(low_level_ctrl ${DEPENDENCY_LIST})
 ament_target_dependencies(read_low_state ${DEPENDENCY_LIST})
@@ -49,6 +52,7 @@ ament_target_dependencies(read_motion_state ${DEPENDENCY_LIST})
 ament_target_dependencies(read_wireless_controller ${DEPENDENCY_LIST})
 ament_target_dependencies(record_bag ${DEPENDENCY_LIST})
 ament_target_dependencies(sport_mode_ctrl ${DEPENDENCY_LIST})
+ament_target_dependencies(go2_udp ${DEPENDENCY_LIST})
 
 
 install(TARGETS 
@@ -58,6 +62,7 @@ install(TARGETS
         read_wireless_controller
         record_bag
         sport_mode_ctrl
+        go2_udp
         DESTINATION lib/${PROJECT_NAME})
 
 
