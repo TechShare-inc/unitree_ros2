@@ -26,7 +26,7 @@ set (
   rclcpp
   std_msgs
   rosbag2_cpp
-
+  sensor_msgs
 )
 
 # find dependencies
@@ -36,6 +36,7 @@ find_package(unitree_api REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 add_executable(low_level_ctrl src/low_level_ctrl.cpp src/common/motor_crc.cpp)
 add_executable(read_low_state src/read_low_state.cpp)
