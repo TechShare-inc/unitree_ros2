@@ -1,5 +1,5 @@
 cd $HOME
-git clone -b v4.1.1 https://github.com/opencv/opencv.git
+git clone -b 4.1.1 https://github.com/opencv/opencv.git
 cd opencv
 # Exit immediately if a command exits with a non-zero status.
 set -e
