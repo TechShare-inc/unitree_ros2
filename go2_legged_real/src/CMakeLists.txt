@@ -45,6 +45,7 @@ add_executable(read_wireless_controller src/read_wireless_controller.cpp)
 add_executable(record_bag src/record_bag.cpp)
 add_executable(sport_mode_ctrl src/sport_mode_ctrl.cpp src/common/ros2_sport_client.cpp)
 add_executable(go2_udp src/go2_udp.cpp src/common/ros2_sport_client.cpp)
+add_executable(thermo_monitor src/thermo_monitor.cpp)
 
 ament_target_dependencies(low_level_ctrl ${DEPENDENCY_LIST})
 ament_target_dependencies(read_low_state ${DEPENDENCY_LIST})
@@ -53,6 +54,7 @@ ament_target_dependencies(read_wireless_controller ${DEPENDENCY_LIST})
 ament_target_dependencies(record_bag ${DEPENDENCY_LIST})
 ament_target_dependencies(sport_mode_ctrl ${DEPENDENCY_LIST})
 ament_target_dependencies(go2_udp ${DEPENDENCY_LIST})
+ament_target_dependencies(thermo_monitor ${DEPENDENCY_LIST})
 
 
 install(TARGETS 
@@ -63,6 +65,7 @@ install(TARGETS
         record_bag
         sport_mode_ctrl
         go2_udp
+        thermo_monitor
         DESTINATION lib/${PROJECT_NAME})
 
 
