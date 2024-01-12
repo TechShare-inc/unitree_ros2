@@ -12,7 +12,7 @@
 #include <thread>
 #include <chrono>
 #include <unistd.h>
-
+#include <mutex>
 
 #define INFO_CPU 0        // Set 1 to info IMU states
 #define INFO_MOTOR 0      // Set 1 to info motor states
@@ -33,6 +33,10 @@ public:
     stat_pub_ = this->create_publisher<unitree_go::msg::Stat>(
         "unitree_stat", 10
     );
+    timer_ = this->create_wall_timer(
+            std::chrono::seconds(1), // 0.1 seconds
+            std::bind(&thrmo_monitor::timer_callback, this));
+
   }
     ~thrmo_monitor() 
   {
@@ -42,6 +46,11 @@ public:
   }
 
 private:
+
+  void timer_callback(){
+    std::lock_guard<std::mutex> lock(stats_mutex_);
+    stat_pub_->publish(stat);
+  }
 
 float get_cpu_temp() {
     std::ifstream file("/sys/class/thermal/thermal_zone0/temp");
@@ -119,6 +128,7 @@ float get_cpu_usage() {
 
   void topic_callback(unitree_go::msg::LowState::SharedPtr data)
   {
+    std::lock_guard<std::mutex> lock(stats_mutex_);
     stat.cpu_temp = get_cpu_temp();
     stat.cpu_usage = get_cpu_usage();
     if (INFO_CPU)
@@ -162,7 +172,7 @@ float get_cpu_usage() {
 
       RCLCPP_INFO(this->get_logger(), "Battery state -- current: %f; voltage: %f; soc: %d", stat.current, stat.voltage, stat.soc);
     }
-    stat_pub_->publish(stat);
+    
 
   }
 
@@ -173,11 +183,8 @@ float get_cpu_usage() {
   unitree_go::msg::IMUState imu;         // Unitree go2 IMU message
   unitree_go::msg::MotorState motor[12]; // Unitree go2 motor state message
   unitree_go::msg::Stat stat;
-  int16_t foot_force[4];                 // External contact force value (int)
-  int16_t foot_force_est[4];             // Estimated  external contact force value (int)
-  float battery_voltage;                 // Battery voltage
-  float battery_current;                 // Battery current
-  float battery_soc;                 // Battery current
+  rclcpp::TimerBase::SharedPtr timer_;
+  std::mutex stats_mutex_;
   std::string motor_names[12] = {"FR_0", "FR_1", "FR_2", 
                                 "FL_0", "FL_1", "FL_2", 
                                 "RR_0", "RR_1", "RR_2", 
