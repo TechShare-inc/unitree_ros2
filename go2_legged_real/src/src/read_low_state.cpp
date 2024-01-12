@@ -60,6 +60,13 @@ private:
       // ddq: angluar acceleration (rad/(s^2))
       // tau_est: Estimated external torque
 
+      
+
+
+      // FR_0 -> 0 , FR_1 -> 1  , FR_2 -> 2   The motor control sequence is currently only 12 motors, which will be retained later.
+      // FL_0 -> 3 , FL_1 -> 4  , FL_2 -> 5
+      // RR_0 -> 6 , RR_1 -> 7  , RR_2 -> 8
+      // RL_0 -> 9 , RL_1 -> 10 , RL_2 -> 11
       for (int i = 0; i < 12; i++)
       {
         motor[i] = data->motor_state[i];

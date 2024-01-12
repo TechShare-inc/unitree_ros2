@@ -1,0 +1,17 @@
+int8 fl_0
+int8 fl_1
+int8 fl_2
+int8 fr_0
+int8 fr_1
+int8 fr_2
+int8 rl_0
+int8 rl_1
+int8 rl_2
+int8 rr_0
+int8 rr_1
+int8 rr_2
+int8 cpu_temp
+float32 cpu_usage
+float32 voltage
+float32 current
+uint8 soc
