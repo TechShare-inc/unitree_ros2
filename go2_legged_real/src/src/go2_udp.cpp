@@ -47,7 +47,7 @@ public:
         // timer_ = this->create_wall_timer(std::chrono::milliseconds(int(dt * 1000)), std::bind(&GO2UDP::timer_callback, this));
         // The suber  callback function is bind to low_state_suber::topic_callback
         low_state_sub_ = this->create_subscription<unitree_go::msg::LowState>(
-            "lowstate", 10, std::bind(&GO2UDP::lowStateCallback, this, _1));
+            "lowstate", 1, std::bind(&GO2UDP::lowStateCallback, this, _1));
         t = -1; // Runing time count
                 // make a fake covarance here
         makeFakeCovariance(imu_msg);

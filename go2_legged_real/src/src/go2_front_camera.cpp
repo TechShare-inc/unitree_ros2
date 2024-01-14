@@ -12,7 +12,7 @@ using std::placeholders::_1;
 class video_stream : public rclcpp::Node
 {
 public:
-  video_stream() : Node("low_state_suber")
+  video_stream() : Node("video_stream")
   {
 
     // The suber  callback function is bind to low_state_suber::topic_callback
@@ -39,8 +39,8 @@ public:
 
 private:
     void show_image() {
-        RCLCPP_ERROR(this->get_logger(), "Started the show image"); 
-        cv::VideoCapture cap("udpsrc address=230.1.1.1 port=1720 multicast-iface=<interface_name> ! application/x-rtp, media=video, encoding-name=H264 ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! video/x-raw,width=1280,height=720,format=BGR ! appsink drop=1", 
+        RCLCPP_INFO(this->get_logger(), "Started the show image"); 
+        cv::VideoCapture cap("udpsrc address=230.1.1.1 port=1720 multicast-iface=eth0 ! application/x-rtp, media=video, encoding-name=H264 ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! video/x-raw,width=1280,height=720,format=BGR ! appsink drop=1", 
         cv::CAP_GSTREAMER);
         if (!cap.isOpened()) {
             std::cerr <<"VideoCapture not opened"<< std::endl;
