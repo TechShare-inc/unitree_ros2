@@ -3,6 +3,10 @@
  **/
 #include "rclcpp/rclcpp.hpp"
 #include "unitree_go/msg/go2_front_video_data.hpp"
+#include "sensor_msgs/msg/image.hpp"
+#include "sensor_msgs/msg/compressed_image.hpp"
+#include "cv_bridge/cv_bridge.h"
+#include "image_transport/image_transport.hpp"
 #include <opencv2/opencv.hpp>
 #include <vector>
 #include <thread>
@@ -14,26 +18,28 @@ class video_stream : public rclcpp::Node
 public:
   video_stream() : Node("video_stream")
   {
+    
+    // Publishers for raw and compressed images
+      image_transport_ = std::make_shared<image_transport::ImageTransport>(this->shared_from_this());
+      raw_image_pub_ = image_transport_->advertise("image_raw", 1);
+      compressed_image_pub_ = this->create_publisher<sensor_msgs::msg::CompressedImage>("image_compressed", 1);
 
-    // The suber  callback function is bind to low_state_suber::topic_callback
-    // video_sub_ = this->create_subscription<unitree_go::msg::Go2FrontVideoData>(
-    //     "frontvideostream", 10, std::bind(&video_stream::video_callback, this, _1));        
-    // timer_ = this->create_wall_timer(
-    //         std::chrono::milliseconds(100), // 0.1 seconds
-    //         std::bind(&video_stream::timer_callback, this));
+
     worker_thread_ = std::thread(&video_stream::show_image, this);
 
   }
 
-    ~video_stream(){
-              // Signal the thread to stop
-        running_ = false;
 
-        // Wait for the thread to finish before exiting the destructor
-        if (worker_thread_.joinable()) {
-            worker_thread_.join();
-        }      
-    }
+
+  ~video_stream(){
+            // Signal the thread to stop
+      running_ = false;
+
+      // Wait for the thread to finish before exiting the destructor
+      if (worker_thread_.joinable()) {
+          worker_thread_.join();
+      }      
+  }
 
 
 
@@ -50,28 +56,54 @@ private:
         }
         RCLCPP_INFO(this->get_logger(), "Opend the cap"); 
         while (running_ && rclcpp::ok()) {
-          cv::Mat frame;
-          
+            cv::Mat frame;
 
             cap.read(frame);
 
-            cv::imshow("receiver", frame);
+            // Publish raw image
 
+
+            // cv::imshow("receiver", frame);
+            publish_image(frame);
             if (cv::waitKey(3) == 27) {
                 break;
             }
-        
         }
         cap.release();
     }
-    // void timer_callback() {
-    //     // Actions to perform on each timer tick
+    void publish_image(const cv::Mat &original_frame) {
+        // Resize frame to 640x480
+        cv::Mat resized_frame;
+        cv::resize(original_frame, resized_frame, cv::Size(640, 480));
 
-    // }
+        // Convert to ROS image message for raw image
+        auto image_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", resized_frame).toImageMsg();
+        raw_image_pub_.publish(image_msg);
 
+        // Compress in H264 format
+        std::vector<uchar> buffer;
+        std::vector<int> compression_params = {
+            cv::IMWRITE_JPEG_QUALITY, 95,  // You can adjust the quality
+            cv::IMWRITE_JPEG_PROGRESSIVE, 1,
+            cv::IMWRITE_JPEG_OPTIMIZE, 1
+        };
+
+        // Encode the frame
+        cv::imencode(".jpg", resized_frame, buffer, compression_params);
+
+        // Create compressed image message
+        sensor_msgs::msg::CompressedImage compressed_image_msg;
+        compressed_image_msg.header = image_msg->header;
+        compressed_image_msg.format = "jpeg"; // Set format to jpeg
+        compressed_image_msg.data = std::move(buffer);
+        compressed_image_pub_->publish(compressed_image_msg);
+    }
 
   // Create the suber  to receive low state of robot
   rclcpp::TimerBase::SharedPtr timer_;
+  std::shared_ptr<image_transport::ImageTransport> image_transport_;
+  image_transport::Publisher raw_image_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr compressed_image_pub_;
   cv::Mat frame;
   std::thread worker_thread_;
   bool running_ = true;

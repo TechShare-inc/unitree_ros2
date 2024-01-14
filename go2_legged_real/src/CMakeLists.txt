@@ -27,6 +27,8 @@ set (
   std_msgs
   rosbag2_cpp
   sensor_msgs
+  cv_bridge
+  image_transport
 )
 
 # find dependencies
@@ -39,6 +41,8 @@ find_package(rosbag2_cpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 # Find OpenCV
 find_package(OpenCV REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(image_transport REQUIRED)
 
 add_executable(low_level_ctrl src/low_level_ctrl.cpp src/common/motor_crc.cpp)
 add_executable(read_low_state src/read_low_state.cpp)
@@ -71,6 +75,7 @@ install(TARGETS
         go2_udp
         thermo_monitor
         go2_front_camera
+        
         DESTINATION lib/${PROJECT_NAME})
 
 
