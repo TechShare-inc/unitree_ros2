@@ -5,6 +5,7 @@ source /opt/ros/foxy/setup.bash
 source /home/unitree/unitree_ws/install/setup.bash
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
 # Loop until the specified address is reachable
+
 while ! ping -c 1 192.168.123.161 &> /dev/null; do
     echo "Waiting for 192.168.123.161 to become reachable..."
     sleep 1
