@@ -49,8 +49,9 @@ public:
             "lowstate", 1, std::bind(&GO2UDP::lowStateCallback, this, _1));
         t = -1; // Runing time count
                 // make a fake covarance here
+        last_message_time_ = this->get_clock()->now();
         makeFakeCovariance(imu_msg);
-                timer_ = this->create_wall_timer(
+        timer_ = this->create_wall_timer(
             std::chrono::seconds(1),
             std::bind(&GO2UDP::timerCallback, this)
         );
@@ -148,10 +149,8 @@ private:
         where 0 is idle, 1 is trot, 2 is trot running, 
         3 is forward climbing mode, and 4 is reverse climbing mode
         */
-        if (msg->start){
-            RCLCPP_INFO(this->get_logger(), "\033[1;33m----->BalanceStand mode\033[0m");
-            sport_req.BalanceStand(req_);
-        }else if (msg->start && msg->right){
+
+        if (msg->start && msg->right){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->forward climbing mode\033[0m");
             sport_req.SwitchGait(req_, 3);
         }else if (msg->start && msg->left){
@@ -167,10 +166,13 @@ private:
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->Damp mode\033[0m");
             sport_req.Damp(req_);
             damped = true;
+        } else if (msg->start){
+            RCLCPP_INFO(this->get_logger(), "\033[1;33m----->BalanceStand mode\033[0m");
+            sport_req.BalanceStand(req_);
         }else{
             action = false;
         }
-        if (action)
+        if(action)
             req_puber->publish(req_);
 
 
