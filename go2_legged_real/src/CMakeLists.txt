@@ -29,6 +29,7 @@ set (
   sensor_msgs
   cv_bridge
   image_transport
+  techshare_ros_pkg2
 )
 
 # find dependencies
@@ -43,6 +44,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
+find_package(techshare_ros_pkg2 REQUIRED)
 
 add_executable(low_level_ctrl src/low_level_ctrl.cpp src/common/motor_crc.cpp)
 add_executable(read_low_state src/read_low_state.cpp)

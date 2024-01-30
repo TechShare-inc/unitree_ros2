@@ -1,7 +1,7 @@
 
 #include <unistd.h>
 #include <cmath>
-
+#include <chrono>
 #include "rclcpp/rclcpp.hpp"
 
 // please respqct the order here
@@ -11,7 +11,8 @@
 #include "unitree_api/msg/request.hpp"
 #include "common/ros2_sport_client.h"
 #include "geometry_msgs/msg/twist.hpp"
-#include "unitree_go/msg//wireless_controller.hpp"
+#include "unitree_go/msg/wireless_controller.hpp"
+#include "techshare_ros_pkg2/msg/controller_msg.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "unitree_go/msg/sport_mode_state.hpp"
 #include <chrono>
@@ -27,30 +28,32 @@ using std::placeholders::_1;
 class GO2UDP : public rclcpp::Node
 {
 public:
-    GO2UDP() : Node("go2_udp"), fixed_stand(true)
+    GO2UDP() : Node("go2_udp"), fixed_stand(true),remotelyControlled(false), damped(false)
     {
-        // // the state_suber is set to subscribe "sportmodestate" topic
-        // state_suber = this->create_subscription<unitree_go::msg::SportModeState>(
-        //     "sportmodestate", 10, std::bind(&GO2UDP::state_callback, this, _1));
         this->declare_parameter<std::string>("cmd_vel_topic", "go2_cmd_vel");
                 // 2. Retrieve the parameter value
         std::string cmd_vel_topic;
         this->get_parameter("cmd_vel_topic", cmd_vel_topic);
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
             cmd_vel_topic, 1, std::bind(&GO2UDP::cmdVelCallback, this, std::placeholders::_1));
+        remote_controller_sub_ = this->create_subscription<techshare_ros_pkg2::msg::ControllerMsg>(
+            "controller_status", 1, std::bind(&GO2UDP::remoteControllerCallback, this, std::placeholders::_1));
         // the cmd_puber is set to subscribe "/wirelesscontroller" topic
         wireless_sub_ = this->create_subscription<unitree_go::msg::WirelessController>(
             "/wirelesscontroller", 10, std::bind(&GO2UDP::wirelessControllerCallback, this, _1));
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
         imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
-        // timer_ = this->create_wall_timer(std::chrono::milliseconds(int(dt * 1000)), std::bind(&GO2UDP::timer_callback, this));
-        // The suber  callback function is bind to low_state_suber::topic_callback
+
         low_state_sub_ = this->create_subscription<unitree_go::msg::LowState>(
             "lowstate", 1, std::bind(&GO2UDP::lowStateCallback, this, _1));
         t = -1; // Runing time count
                 // make a fake covarance here
         makeFakeCovariance(imu_msg);
+                timer_ = this->create_wall_timer(
+            std::chrono::seconds(1),
+            std::bind(&GO2UDP::timerCallback, this)
+        );
     };
 
 private:
@@ -126,9 +129,58 @@ private:
         delay_timer_->cancel();
     }
 
+    void timerCallback() {
+        // Check time since last message
+        auto now = this->get_clock()->now();
+        if ((now - last_message_time_).seconds() >= 1.0) {
+            remotelyControlled = false;
+            RCLCPP_INFO(this->get_logger(), "No message received for more than 1 second. Setting remotelyControlled to false.");
+        }
+    }
+
+    void remoteControllerCallback(const techshare_ros_pkg2::msg::ControllerMsg::SharedPtr msg){
+        remotelyControlled = true;
+        last_message_time_ = this->get_clock()->now();
+        bool action = true;
+        unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
+        /*
+        Gait enumeration value, with values ranging from 0 to 4, 
+        where 0 is idle, 1 is trot, 2 is trot running, 
+        3 is forward climbing mode, and 4 is reverse climbing mode
+        */
+        if (msg->start){
+            RCLCPP_INFO(this->get_logger(), "\033[1;33m----->BalanceStand mode\033[0m");
+            sport_req.BalanceStand(req_);
+        }else if (msg->start && msg->right){
+            RCLCPP_INFO(this->get_logger(), "\033[1;33m----->forward climbing mode\033[0m");
+            sport_req.SwitchGait(req_, 3);
+        }else if (msg->start && msg->left){
+            RCLCPP_INFO(this->get_logger(), "\033[1;33m----->reverse climbing mode\033[0m");
+            sport_req.SwitchGait(req_, 4);
+        }else if (msg->l2 && msg->a && !damped){
+            RCLCPP_INFO(this->get_logger(), "\033[1;33m----->StandDown mode\033[0m");
+            sport_req.StandDown(req_);
+        }else if (msg->l2 && msg->a && damped){
+            RCLCPP_INFO(this->get_logger(), "\033[1;33m----->StandUp mode\033[0m");
+            sport_req.StandUp(req_);
+        }else if (msg->l2 && msg->b){
+            RCLCPP_INFO(this->get_logger(), "\033[1;33m----->Damp mode\033[0m");
+            sport_req.Damp(req_);
+            damped = true;
+        }else{
+            action = false;
+        }
+        if (action)
+            req_puber->publish(req_);
+
+
+
+    }
+
+
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
-        if (msg->linear.z != 0.0){
+        if (msg->linear.z != 0.0 && !remotelyControlled){
             // stop the move
             // sport_req.StopMove(req);
             // req_puber->publish(req);
@@ -218,6 +270,9 @@ private:
         // Publish the IMU message
         imu_pub_->publish(imu_msg);
     }
+
+
+
     void wirelessControllerCallback(const unitree_go::msg::WirelessController::SharedPtr data)
     {
         // lx: Left joystick x value
@@ -235,6 +290,8 @@ private:
     rclcpp::Subscription<unitree_go::msg::WirelessController>::SharedPtr wireless_sub_;
     // Create the suber  to receive low state of robot
     rclcpp::Subscription<unitree_go::msg::LowState>::SharedPtr low_state_sub_;
+    rclcpp::Subscription<techshare_ros_pkg2::msg::ControllerMsg>::SharedPtr remote_controller_sub_;
+
 
 
     rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr req_puber;
@@ -246,6 +303,8 @@ private:
     float battery_voltage;                 // Battery voltage
     float battery_current;                 // Battery current
     bool fixed_stand;
+    bool remotelyControlled, damped;
+    rclcpp::Time last_message_time_;
     rclcpp::TimerBase::SharedPtr timer_, delay_timer_; // ROS2 timer
     sensor_msgs::msg::Imu imu_msg;
     unitree_api::msg::Request req; // Unitree Go2 ROS2 request message
