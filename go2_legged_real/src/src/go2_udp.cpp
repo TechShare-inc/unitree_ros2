@@ -166,9 +166,12 @@ private:
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->Damp mode\033[0m");
             sport_req.Damp(req_);
             damped = true;
+            fixed_stand = true;
         } else if (msg->start){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->BalanceStand mode\033[0m");
-            sport_req.BalanceStand(req_);
+            sport_req.SwitchGait(req_, 1);
+            damped = false;
+            // sport_req.BalanceStand(req_);
         }else{
             action = false;
         }
