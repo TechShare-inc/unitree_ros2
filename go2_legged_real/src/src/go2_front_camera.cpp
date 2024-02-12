@@ -22,6 +22,9 @@ public:
     // Publishers for raw and compressed images
       // image_transport_ = std::make_shared<image_transport::ImageTransport>(this->shared_from_this());
       // raw_image_pub_ = image_transport_->advertise("image_raw", 1);
+      this->declare_parameter<std::string>("camera_interface", "enp86s0");
+      this->get_parameter("camera_interface", camera_interface);
+
       compressed_image_pub_ = this->create_publisher<sensor_msgs::msg::CompressedImage>("/front_camera/image_raw/compressed", 1);
       raw_image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("/front_camera/image_raw", 1);
 
@@ -47,7 +50,8 @@ public:
 private:
     void show_image() {
         RCLCPP_INFO(this->get_logger(), "Started the show image"); 
-        cv::VideoCapture cap("udpsrc address=230.1.1.1 port=1720 multicast-iface=enp86s0 ! application/x-rtp, media=video, encoding-name=H264 ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! video/x-raw,width=1280,height=720,format=BGR ! appsink drop=1", 
+        const std::string gstrem_str = "udpsrc address=230.1.1.1 port=1720 multicast-iface=" + camera_interface + " ! application/x-rtp, media=video, encoding-name=H264 ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! video/x-raw,width=1280,height=720,format=BGR ! appsink drop=1";
+        cv::VideoCapture cap(gstrem_str, 
         cv::CAP_GSTREAMER);
         if (!cap.isOpened()) {
             std::cerr <<"VideoCapture not opened"<< std::endl;
@@ -125,6 +129,7 @@ private:
   cv::Mat frame;
   std::thread worker_thread_;
   bool running_ = true;
+  std::string camera_interface;
 };
 
 
