@@ -11,7 +11,7 @@
 #define INFO_FOOT_FORCE 1 // Set 1 to info foot force states
 #define INFO_BATTERY 1    // Set 1 to info battery states
 
-#define HIGH_FREQ 1 // Set 1 to subscribe to low states with high frequencies (500Hz)
+#define HIGH_FREQ 0 // Set 1 to subscribe to low states with high frequencies (500Hz)
 
 using std::placeholders::_1;
 
