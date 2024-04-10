@@ -13,6 +13,7 @@
 #include "techshare_ros_pkg2/msg/controller_msg.hpp"
 #include "techshare_ros_pkg2/srv/change_drive_mode.hpp"
 #include "sensor_msgs/msg/imu.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 
 #include <std_msgs/msg/int8.hpp>
 #include <chrono>
@@ -23,41 +24,52 @@
 
 #define HIGH_FREQ 1 // Set 1 to subscribe to low states with high frequencies (500Hz)
 using std::placeholders::_1;
-// Create a GO2UDP class for soprt commond request
-class GO2UDP : public rclcpp::Node
+// Create a GO2DDS class for soprt commond request
+class GO2DDS : public rclcpp::Node
 {
 public:
-    GO2UDP() : Node("go2_udp"), fixed_stand(true),remotelyControlled(false), stand(false)
+    GO2DDS() : Node("go2_dds"), fixed_stand(true),remotelyControlled(false), stand(false)
     {
         this->declare_parameter<std::string>("cmd_vel_topic", "go2_cmd_vel");
+        this->declare_parameter("imuFrame", "imu_link");
+        this->declare_parameter("odomFrame", "odom");
+        this->declare_parameter("imuTopic", "imu/data");
+        this->declare_parameter("robotFrame", "base_link");
+        this->declare_parameter("robotOdomTopic", "dog_odom");
+        this->get_parameter("robotOdomTopic", robotOdometry);
+        this->get_parameter("imuTopic", imuTopic);
+        this->get_parameter("imuFrame", imuFrame);
+        this->get_parameter("odomFrame", odomFrame);
+        this->get_parameter("robotFrame", robotFrame);
                 // 2. Retrieve the parameter value
         std::string cmd_vel_topic;
         this->get_parameter("cmd_vel_topic", cmd_vel_topic);
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            cmd_vel_topic, 1, std::bind(&GO2UDP::cmdVelCallback, this, std::placeholders::_1));
+            cmd_vel_topic, 1, std::bind(&GO2DDS::cmdVelCallback, this, std::placeholders::_1));
         remote_controller_sub_ = this->create_subscription<techshare_ros_pkg2::msg::ControllerMsg>(
-            "controller_status", 1, std::bind(&GO2UDP::remoteControllerCallback, this, std::placeholders::_1));
+            "controller_status", 1, std::bind(&GO2DDS::remoteControllerCallback, this, std::placeholders::_1));
         // the cmd_puber is set to subscribe "/wirelesscontroller" topic
         wireless_sub_ = this->create_subscription<unitree_go::msg::WirelessController>(
-            "/wirelesscontroller", 10, std::bind(&GO2UDP::wirelessControllerCallback, this, _1));
+            "/wirelesscontroller", 10, std::bind(&GO2DDS::wirelessControllerCallback, this, _1));
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
         imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
         change_drivemode_srv_client_ = this->create_client<techshare_ros_pkg2::srv::ChangeDriveMode>("change_driving_mode");
         // driving_mode_sub_ = this->create_subscription<std_msgs::msg::Int8>("driving_mode", 1,
-        //     std::bind(&GO2UDP::driving_mode_cb, this, std::placeholders::_1));
+        //     std::bind(&GO2DDS::driving_mode_cb, this, std::placeholders::_1));
         low_state_sub_ = this->create_subscription<unitree_go::msg::LowState>(
-            "/lowstate", 1, std::bind(&GO2UDP::lowStateCallback, this, _1));
+            "/lowstate", 1, std::bind(&GO2DDS::lowStateCallback, this, _1));
         sportmode_state_sub_ = this->create_subscription<unitree_go::msg::SportModeState>(
-            "/lf/sportmodestate", 100, std::bind(&GO2UDP::sportmodeStateCallback, this, _1));
+            "/lf/sportmodestate", 100, std::bind(&GO2DDS::sportmodeStateCallback, this, _1));
             // The suber  callback function is bind to motion_state_suber::topic_callback
         t = -1; // Runing time count
                 // make a fake covarance here
+        dog_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>(robotOdometry,1000);
         last_message_time_ = this->get_clock()->now();
         makeFakeCovariance(imu_msg);
         timer_ = this->create_wall_timer(
             std::chrono::seconds(1),
-            std::bind(&GO2UDP::timerCallback, this)
+            std::bind(&GO2DDS::timerCallback, this)
         );
     };
 
@@ -294,7 +306,7 @@ private:
                 // Set up the timer for 2 seconds delay
                 delay_timer_ = this->create_wall_timer(
                     std::chrono::seconds(2), 
-                    std::bind(&GO2UDP::dampFunction, this));
+                    std::bind(&GO2DDS::dampFunction, this));
             }else {
                 RCLCPP_INFO(this->get_logger(), "\033[1;34m----->Stand up\033[0m");
                 sport_req.StandUp(req);
@@ -351,7 +363,7 @@ private:
         // Create and populate an IMU message
         
         imu_msg.header.stamp = this->now();
-        imu_msg.header.frame_id = "imu_link";
+        imu_msg.header.frame_id = imuFrame;
 
         // Orientation data (assuming you have this data)
         imu_msg.orientation.x = imu.quaternion[0];
@@ -371,6 +383,31 @@ private:
 
         // Publish the IMU message
         imu_pub_->publish(imu_msg);
+    }
+    void publishOdom(){
+            // Quadruped robot odometer    
+        dog_odom.header.frame_id = odomFrame;
+        dog_odom.child_frame_id = robotFrame;
+        dog_odom.header.stamp = this->now();
+
+        // dog_odom.pose.pose.position.x = rosgaitstate.position[0];
+        // dog_odom.pose.pose.position.y = rosgaitstate.position[1];
+        // dog_odom.pose.pose.position.z = rosgaitstate.position[2]; 
+
+        // dog_odom.pose.pose.orientation.w = rosgaitstate.quaternion[0];
+        // dog_odom.pose.pose.orientation.x = rosgaitstate.quaternion[1];
+        // dog_odom.pose.pose.orientation.y = rosgaitstate.quaternion[2];
+        // dog_odom.pose.pose.orientation.z = rosgaitstate.quaternion[3];
+
+        // dog_odom.twist.twist.linear.x = rosgaitstate.velocity[0];
+        // dog_odom.twist.twist.linear.y = rosgaitstate.velocity[1];
+        // dog_odom.twist.twist.linear.z = rosgaitstate.velocity[2];
+
+        // dog_odom.twist.twist.angular.x = rosgaitstate.gyroscope[0];
+        // dog_odom.twist.twist.angular.y = rosgaitstate.gyroscope[1];
+        // dog_odom.twist.twist.angular.z = rosgaitstate.gyroscope[2];
+
+        dog_odom_pub->publish(dog_odom);
     }
 
 
@@ -394,6 +431,9 @@ private:
     rclcpp::Subscription<unitree_go::msg::SportModeState>::SharedPtr sportmode_state_sub_;
     rclcpp::Subscription<techshare_ros_pkg2::msg::ControllerMsg>::SharedPtr remote_controller_sub_;
     rclcpp::Client<techshare_ros_pkg2::srv::ChangeDriveMode>::SharedPtr change_drivemode_srv_client_;
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr dog_odom_pub; // Publishes odom to ROS
+    nav_msgs::msg::Odometry dog_odom;  // odom data
+
     // rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr driving_mode_sub_;
 
 
@@ -415,6 +455,14 @@ private:
     unitree_api::msg::Request req; // Unitree Go2 ROS2 request message
     SportClient sport_req;
     std::mutex mutex_;
+    //link names
+    std::string robotOdometry;
+    std::string imuFrame;
+    std::string robotMovement;
+    std::string odomFrame;
+    std::string robotFrame;
+    std::string imuTopic;
+
     double t; // runing time count
     double dt = 0.002; //control time step
 
@@ -426,7 +474,7 @@ private:
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv); // Initialize rclcpp
-    rclcpp::spin(std::make_shared<GO2UDP>()); //Run ROS2 node
+    rclcpp::spin(std::make_shared<GO2DDS>()); //Run ROS2 node
     rclcpp::shutdown();
     return 0;
 }
