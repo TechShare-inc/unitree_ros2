@@ -31,6 +31,7 @@ set (
   image_transport
   techshare_ros_pkg2
   nav_msgs
+  unitree_interfaces
 )
 
 # find dependencies
@@ -42,6 +43,7 @@ find_package(std_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(unitree_interfaces REQUIRED)
 # Find OpenCV
 find_package(OpenCV REQUIRED)
 find_package(cv_bridge REQUIRED)

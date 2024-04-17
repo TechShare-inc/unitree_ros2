@@ -14,7 +14,7 @@
 #include "techshare_ros_pkg2/srv/change_drive_mode.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "nav_msgs/msg/odometry.hpp"
-
+#include "unitree_interfaces/msg/gait_cmd.hpp"   // cmd_vel
 #include <std_msgs/msg/int8.hpp>
 #include <chrono>
 #define INFO_IMU 0        // Set 1 to info IMU states
@@ -51,6 +51,9 @@ public:
         // the cmd_puber is set to subscribe "/wirelesscontroller" topic
         wireless_sub_ = this->create_subscription<unitree_go::msg::WirelessController>(
             "/wirelesscontroller", 10, std::bind(&GO2DDS::wirelessControllerCallback, this, _1));
+        rosgaitcmd_sub_ = this->create_subscription<unitree_interfaces::msg::GaitCmd>(
+            "/rosgaitcmd", 10, std::bind(&GO2DDS::rosgaitcmdCallback, this, _1));
+
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
         imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
@@ -96,7 +99,7 @@ private:
             SLOPEDOWN = 205
         the above enum represents a drivining mode index in HALNA SYSTEM
         */
-
+        gait_type_ = msg->gait_type;
         RCLCPP_INFO(
             this->get_logger(),
             "\033[1;33mMode: %d | gait_type: %d\033[0m",
@@ -410,6 +413,17 @@ private:
         dog_odom_pub->publish(dog_odom);
     }
 
+    void rosgaitcmdCallback(const unitree_interfaces::msg::GaitCmd::SharedPtr msg){
+        std::lock_guard<std::mutex> lock(mutex_); 
+        RCLCPP_INFO(this->get_logger(), "\033[1;32m----->Moving\033[0m");
+        if (gait_type_ !=msg->gait_type){
+            sport_req.SwitchGait(req, msg->gait_type);
+            req_puber->publish(req);
+        }
+
+        sport_req.Move(req, msg->velocity[0], msg->velocity[1], msg->yaw_speed);
+        req_puber->publish(req);
+    }
 
 
     void wirelessControllerCallback(const unitree_go::msg::WirelessController::SharedPtr data)
@@ -426,6 +440,7 @@ private:
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
     rclcpp::Subscription<unitree_go::msg::WirelessController>::SharedPtr wireless_sub_;
+    rclcpp::Subscription<unitree_interfaces::msg::GaitCmd>::SharedPtr rosgaitcmd_sub_;
     // Create the suber  to receive low state of robot
     rclcpp::Subscription<unitree_go::msg::LowState>::SharedPtr low_state_sub_;
     rclcpp::Subscription<unitree_go::msg::SportModeState>::SharedPtr sportmode_state_sub_;
@@ -462,7 +477,7 @@ private:
     std::string odomFrame;
     std::string robotFrame;
     std::string imuTopic;
-
+    int gait_type_ =0;
     double t; // runing time count
     double dt = 0.002; //control time step
 
