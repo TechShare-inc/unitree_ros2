@@ -415,12 +415,17 @@ private:
 
     void rosgaitcmdCallback(const unitree_interfaces::msg::GaitCmd::SharedPtr msg){
         std::lock_guard<std::mutex> lock(mutex_); 
-        RCLCPP_INFO(this->get_logger(), "\033[1;32m----->Moving\033[0m");
-        if (gait_type_ !=msg->gait_type){
+        RCLCPP_INFO(this->get_logger(), "\033[1;32m----->Moving with rosgaitcmd\033[0m");
+        if (gait_type_ != msg->gait_type){
             sport_req.SwitchGait(req, msg->gait_type);
             req_puber->publish(req);
         }
-
+        if (std::abs(msg->velocity[0]) < 1e-9 &&
+            std::abs(msg->velocity[1]) < 1e-9 &&
+            std::abs(msg->yaw_speed) < 1e-9)
+        {
+            return;
+        }
         sport_req.Move(req, msg->velocity[0], msg->velocity[1], msg->yaw_speed);
         req_puber->publish(req);
     }
