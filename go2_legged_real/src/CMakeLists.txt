@@ -50,6 +50,7 @@ find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(techshare_ros_pkg2 REQUIRED)
 
+add_executable(show_rosgaitcmd src/show_rosgaitcmd.cpp)
 add_executable(low_level_ctrl src/low_level_ctrl.cpp src/common/motor_crc.cpp)
 add_executable(read_low_state src/read_low_state.cpp)
 add_executable(read_motion_state src/read_motion_state.cpp)
@@ -60,6 +61,7 @@ add_executable(go2_dds src/go2_dds.cpp src/common/ros2_sport_client.cpp)
 add_executable(thermo_monitor src/thermo_monitor.cpp)
 add_executable(go2_front_camera src/go2_front_camera.cpp)
 target_link_libraries(go2_front_camera ${OpenCV_LIBS})
+ament_target_dependencies(show_rosgaitcmd ${DEPENDENCY_LIST})
 ament_target_dependencies(low_level_ctrl ${DEPENDENCY_LIST})
 ament_target_dependencies(read_low_state ${DEPENDENCY_LIST})
 ament_target_dependencies(read_motion_state ${DEPENDENCY_LIST})
@@ -75,6 +77,7 @@ install(TARGETS
         low_level_ctrl
         read_low_state
         read_motion_state
+        show_rosgaitcmd
         read_wireless_controller
         record_bag
         sport_mode_ctrl

@@ -5,6 +5,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "unitree_go/msg/sport_mode_state.hpp"
 // please respqct the order here
+#include "unitree_interfaces/msg/gait_cmd.hpp"   
 #include "unitree_go/msg/low_state.hpp"
 #include "unitree_api/msg/request.hpp"
 #include "common/ros2_sport_client.h"
@@ -14,7 +15,6 @@
 #include "techshare_ros_pkg2/srv/change_drive_mode.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "nav_msgs/msg/odometry.hpp"
-#include "unitree_interfaces/msg/gait_cmd.hpp"   // cmd_vel
 #include <std_msgs/msg/int8.hpp>
 #include <chrono>
 #define INFO_IMU 0        // Set 1 to info IMU states
@@ -52,7 +52,7 @@ public:
         wireless_sub_ = this->create_subscription<unitree_go::msg::WirelessController>(
             "/wirelesscontroller", 10, std::bind(&GO2DDS::wirelessControllerCallback, this, _1));
         rosgaitcmd_sub_ = this->create_subscription<unitree_interfaces::msg::GaitCmd>(
-            "/rosgaitcmd", 10, std::bind(&GO2DDS::rosgaitcmdCallback, this, _1));
+            "rosgaitcmd", 10, std::bind(&GO2DDS::rosgaitcmdCallback, this, std::placeholders::_1));
 
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
@@ -414,15 +414,25 @@ private:
     }
 
     void rosgaitcmdCallback(const unitree_interfaces::msg::GaitCmd::SharedPtr msg){
-        std::lock_guard<std::mutex> lock(mutex_); 
-        RCLCPP_INFO(this->get_logger(), "\033[1;32m----->Moving\033[0m");
+        static unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
+        RCLCPP_INFO(this->get_logger(), "\033[34mReceived GaitCmd:");
+        RCLCPP_INFO(this->get_logger(), "  Mode: %u", msg->mode);
+        RCLCPP_INFO(this->get_logger(), "  Gait Type: %u", msg->gait_type);
+        RCLCPP_INFO(this->get_logger(), "  Speed Level: %u", msg->speed_level);
+        RCLCPP_INFO(this->get_logger(), "  Foot Raise Height: %f", msg->foot_raise_height);
+        RCLCPP_INFO(this->get_logger(), "  Body Height: %f", msg->body_height);
+        RCLCPP_INFO(this->get_logger(), "  Position: [%f, %f]", msg->position[0], msg->position[1]);
+        RCLCPP_INFO(this->get_logger(), "  Euler Angles: [%f, %f, %f]", msg->euler[0], msg->euler[1], msg->euler[2]);
+        RCLCPP_INFO(this->get_logger(), "  Velocity: [%f, %f]", msg->velocity[0], msg->velocity[1]);
+        RCLCPP_INFO(this->get_logger(), "  Yaw Speed: %f\033[0m", msg->yaw_speed);
         if (gait_type_ !=msg->gait_type){
-            sport_req.SwitchGait(req, msg->gait_type);
-            req_puber->publish(req);
+            sport_req.SwitchGait(req_, msg->gait_type);
+            req_puber->publish(req_);
         }
+        // std::cout << "\033[34m" << "Velocity[0]: " << msg->velocity[0] << ", Velocity[1]: " << msg->velocity[1] << ", Yaw Speed: " << msg->yaw_speed << "\033[0m" << std::endl;
 
-        sport_req.Move(req, msg->velocity[0], msg->velocity[1], msg->yaw_speed);
-        req_puber->publish(req);
+        sport_req.Move(req_, msg->velocity[0], msg->velocity[1], msg->yaw_speed);
+        req_puber->publish(req_);
     }
 
 
