@@ -429,7 +429,12 @@ private:
             sport_req.SwitchGait(req_, msg->gait_type);
             req_puber->publish(req_);
         }
-        // std::cout << "\033[34m" << "Velocity[0]: " << msg->velocity[0] << ", Velocity[1]: " << msg->velocity[1] << ", Yaw Speed: " << msg->yaw_speed << "\033[0m" << std::endl;
+        if (std::abs(msg->velocity[0]) < 1e-9 &&
+            std::abs(msg->velocity[1]) < 1e-9 &&
+            std::abs(msg->yaw_speed) < 1e-9)
+        {
+            return;
+        }
 
         sport_req.Move(req_, msg->velocity[0], msg->velocity[1], msg->yaw_speed);
         req_puber->publish(req_);
