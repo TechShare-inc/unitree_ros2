@@ -425,7 +425,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "  Euler Angles: [%f, %f, %f]", msg->euler[0], msg->euler[1], msg->euler[2]);
         RCLCPP_INFO(this->get_logger(), "  Velocity: [%f, %f]", msg->velocity[0], msg->velocity[1]);
         RCLCPP_INFO(this->get_logger(), "  Yaw Speed: %f\033[0m", msg->yaw_speed);
-        if (gait_type_ !=msg->gait_type){
+        if (gait_type_ !=msg->gait_type && msg->gait_type !=0){
             sport_req.SwitchGait(req_, msg->gait_type);
             req_puber->publish(req_);
         }
