@@ -435,8 +435,17 @@ private:
         {
             return;
         }
-
-        sport_req.Move(req_, msg->velocity[0], msg->velocity[1], msg->yaw_speed);
+        float x_vel= msg->velocity[0];
+        float y_vel = msg->velocity[1];
+        float yaw_vel = msg->yaw_speed;
+        if (gait_type_ == 3 || gait_type_ == 4){
+            if(x_vel>0){
+                x_vel=0.1;
+            }else{
+                x_vel=-0.1;
+            }
+        }
+        sport_req.Move(req_, x_vel, y_vel, yaw_vel);
         req_puber->publish(req_);
     }
 
