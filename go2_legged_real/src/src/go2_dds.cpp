@@ -5,8 +5,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "unitree_go/msg/sport_mode_state.hpp"
 // please respqct the order here
-#include "unitree_interfaces/msg/gait_cmd.hpp"   
 #include "unitree_go/msg/low_state.hpp"
+#include "unitree_interfaces/msg/gait_cmd.hpp"   
 #include "unitree_api/msg/request.hpp"
 #include "common/ros2_sport_client.h"
 #include "geometry_msgs/msg/twist.hpp"
@@ -28,7 +28,7 @@ using std::placeholders::_1;
 class GO2DDS : public rclcpp::Node
 {
 public:
-    GO2DDS() : Node("go2_dds"), fixed_stand(true),remotelyControlled(false), stand(false)
+    GO2DDS() : Node("go2_dds"), fixed_stand(true),remotelyControlled(false), stand(false),imu_msg_flag(false), dog_odom_flag(false),drivemode_srv_client_flag(false)
     {
         this->declare_parameter<std::string>("cmd_vel_topic", "go2_cmd_vel");
         this->declare_parameter("imuFrame", "imu_link");
@@ -53,35 +53,59 @@ public:
             "/wirelesscontroller", 10, std::bind(&GO2DDS::wirelessControllerCallback, this, _1));
         rosgaitcmd_sub_ = this->create_subscription<unitree_interfaces::msg::GaitCmd>(
             "rosgaitcmd", 10, std::bind(&GO2DDS::rosgaitcmdCallback, this, std::placeholders::_1));
+        low_state_sub_ = this->create_subscription<unitree_go::msg::LowState>(
+            "/lowstate", 1, std::bind(&GO2DDS::lowStateCallback, this, _1));
+        sportmode_state_sub_ = this->create_subscription<unitree_go::msg::SportModeState>(
+            "/lf/sportmodestate", 1, std::bind(&GO2DDS::sportmodeStateCallback, this, _1));
 
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
         imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
+        dog_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>(robotOdometry,1);
+
         change_drivemode_srv_client_ = this->create_client<techshare_ros_pkg2::srv::ChangeDriveMode>("change_driving_mode");
-        // driving_mode_sub_ = this->create_subscription<std_msgs::msg::Int8>("driving_mode", 1,
-        //     std::bind(&GO2DDS::driving_mode_cb, this, std::placeholders::_1));
-        low_state_sub_ = this->create_subscription<unitree_go::msg::LowState>(
-            "/lowstate", 1, std::bind(&GO2DDS::lowStateCallback, this, _1));
-        sportmode_state_sub_ = this->create_subscription<unitree_go::msg::SportModeState>(
-            "/lf/sportmodestate", 100, std::bind(&GO2DDS::sportmodeStateCallback, this, _1));
-            // The suber  callback function is bind to motion_state_suber::topic_callback
-        t = -1; // Runing time count
-                // make a fake covarance here
-        dog_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>(robotOdometry,1000);
         last_message_time_ = this->get_clock()->now();
-        makeFakeCovariance(imu_msg);
         timer_ = this->create_wall_timer(
             std::chrono::seconds(1),
             std::bind(&GO2DDS::timerCallback, this)
         );
+        double pub_rate = 400.0f;
+        double T = 1.0 / pub_rate * 1000.f;   
+        auto time = std::chrono::duration<long, std::ratio<1, 1000>>(int(T));
+        rawDataTimer = this->create_wall_timer(
+            time,
+            std::bind(&GO2DDS::rawDataPubCallback, this)
+        );
+        if (change_drivemode_srv_client_->wait_for_service(std::chrono::seconds(5))){
+            drivemode_srv_client_flag = true;
+        }
+
     };
 
 private:
     // void driving_mode_cb(const std_msgs::msg::Int8::SharedPtr msg){
     //     driving_mode = msg->data;
     // }
-      void sportmodeStateCallback(const unitree_go::msg::SportModeState::SharedPtr msg)
+
+    void rawDataPubCallback(){
+        // Publish the IMU message
+        if (imu_msg_flag && dog_odom_flag){
+            makeFakeCovariance(imu_msg); // this is called only once
+            imu_pub_->publish(imu_msg);
+            dog_odom_pub->publish(dog_odom);
+        }
+        // if (imu_msg == nullptr) {
+        //     std::cout << "imu msg is null" << std::endl;
+        // }
+        // if (dog_odom == nullptr) {
+        //     std::cout << "odom msg is null" << std::endl;
+        // }
+
+    }
+
+    void sportmodeStateCallback(const unitree_go::msg::SportModeState::SharedPtr msg)
     {
+        getOdom();
         /*
         class TerrainType(Enum):
 
@@ -99,6 +123,7 @@ private:
             SLOPEDOWN = 205
         the above enum represents a drivining mode index in HALNA SYSTEM
         */
+        rosgaitstate = *msg;
         gait_type_ = msg->gait_type;
         RCLCPP_INFO(
             this->get_logger(),
@@ -126,13 +151,14 @@ private:
         }else if ((msg->mode == 1 || msg->mode == 3) && msg->gait_type == 4){ //climb down
             driving_mode = 104;
         }
-
         if (driving_mode != prev_driving_mode){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->Changing the mode from %d to %d\033[0m", prev_driving_mode, driving_mode);
-            if (change_drivemode_srv_client_->wait_for_service(std::chrono::seconds(5))){
-                auto message_request = std::make_shared<techshare_ros_pkg2::srv::ChangeDriveMode::Request>();
-                message_request->mode = driving_mode;
-                change_drivemode_srv_client_->async_send_request(message_request);
+            {
+                if(drivemode_srv_client_flag){
+                    auto message_request = std::make_shared<techshare_ros_pkg2::srv::ChangeDriveMode::Request>();
+                    message_request->mode = driving_mode;
+                    change_drivemode_srv_client_->async_send_request(message_request);
+                }
                 prev_driving_mode = driving_mode;
             }
         }
@@ -141,7 +167,7 @@ private:
       void lowStateCallback(unitree_go::msg::LowState::SharedPtr data)
     {
         imu = data->imu_state;
-        publishImuData();
+        getImuData();
     if (INFO_IMU)
     {
       // Info IMU states
@@ -327,41 +353,44 @@ private:
         }
     }
     void makeFakeCovariance(sensor_msgs::msg::Imu& imu_msg_){
-        // Set the orientation covariance matrix
-        imu_msg_.orientation_covariance[1] = 0.0;
-        imu_msg_.orientation_covariance[2] = 0.0;
-        imu_msg_.orientation_covariance[3] = 0.0;
-        imu_msg_.orientation_covariance[4] = 0.0207;
-        imu_msg_.orientation_covariance[0] = 0.0479;
-        imu_msg_.orientation_covariance[5] = 0.0;
-        imu_msg_.orientation_covariance[6] = 0.0;
-        imu_msg_.orientation_covariance[7] = 0.0;
-        imu_msg_.orientation_covariance[8] = 0.0041;
+        std::call_once(flag, [&imu_msg_]() {
+            
+            // Set the orientation covariance matrix
+            imu_msg_.orientation_covariance[1] = 0.0;
+            imu_msg_.orientation_covariance[2] = 0.0;
+            imu_msg_.orientation_covariance[3] = 0.0;
+            imu_msg_.orientation_covariance[4] = 0.0207;
+            imu_msg_.orientation_covariance[0] = 0.0479;
+            imu_msg_.orientation_covariance[5] = 0.0;
+            imu_msg_.orientation_covariance[6] = 0.0;
+            imu_msg_.orientation_covariance[7] = 0.0;
+            imu_msg_.orientation_covariance[8] = 0.0041;
 
-        // Set the linear acceleration covariance matrix
-        imu_msg_.linear_acceleration_covariance[0] = 0.0364;
-        imu_msg_.linear_acceleration_covariance[1] = 0.0;
-        imu_msg_.linear_acceleration_covariance[2] = 0.0;
-        imu_msg_.linear_acceleration_covariance[3] = 0.0;
-        imu_msg_.linear_acceleration_covariance[4] = 0.0048;
-        imu_msg_.linear_acceleration_covariance[5] = 0.0;
-        imu_msg_.linear_acceleration_covariance[6] = 0.0;
-        imu_msg_.linear_acceleration_covariance[7] = 0.0;
-        imu_msg_.linear_acceleration_covariance[8] = 0.0796;
+            // Set the linear acceleration covariance matrix
+            imu_msg_.linear_acceleration_covariance[0] = 0.0364;
+            imu_msg_.linear_acceleration_covariance[1] = 0.0;
+            imu_msg_.linear_acceleration_covariance[2] = 0.0;
+            imu_msg_.linear_acceleration_covariance[3] = 0.0;
+            imu_msg_.linear_acceleration_covariance[4] = 0.0048;
+            imu_msg_.linear_acceleration_covariance[5] = 0.0;
+            imu_msg_.linear_acceleration_covariance[6] = 0.0;
+            imu_msg_.linear_acceleration_covariance[7] = 0.0;
+            imu_msg_.linear_acceleration_covariance[8] = 0.0796;
 
-        // Set the angular velocity covariance matrix
-        imu_msg_.angular_velocity_covariance[0] = 0.0663;
-        imu_msg_.angular_velocity_covariance[1] = 0.0;
-        imu_msg_.angular_velocity_covariance[2] = 0.0;
-        imu_msg_.angular_velocity_covariance[3] = 0.0;
-        imu_msg_.angular_velocity_covariance[4] = 0.1453;
-        imu_msg_.angular_velocity_covariance[5] = 0.0;
-        imu_msg_.angular_velocity_covariance[6] = 0.0;
-        imu_msg_.angular_velocity_covariance[7] = 0.0;
-        imu_msg_.angular_velocity_covariance[8] = 0.0378;
-
+            // Set the angular velocity covariance matrix
+            imu_msg_.angular_velocity_covariance[0] = 0.0663;
+            imu_msg_.angular_velocity_covariance[1] = 0.0;
+            imu_msg_.angular_velocity_covariance[2] = 0.0;
+            imu_msg_.angular_velocity_covariance[3] = 0.0;
+            imu_msg_.angular_velocity_covariance[4] = 0.1453;
+            imu_msg_.angular_velocity_covariance[5] = 0.0;
+            imu_msg_.angular_velocity_covariance[6] = 0.0;
+            imu_msg_.angular_velocity_covariance[7] = 0.0;
+            imu_msg_.angular_velocity_covariance[8] = 0.0378;
+            std::cout << "\033[1;33mDone setting imu fake covariance\033[0m" << std::endl;
+        });
     }
-    void publishImuData()
+    void getImuData()
     {
         // Create and populate an IMU message
         
@@ -384,33 +413,33 @@ private:
         imu_msg.linear_acceleration.y = imu.accelerometer[1];
         imu_msg.linear_acceleration.z = imu.accelerometer[2];
 
-        // Publish the IMU message
-        imu_pub_->publish(imu_msg);
+        imu_msg_flag = true;
     }
-    void publishOdom(){
+    void getOdom(){
             // Quadruped robot odometer    
         dog_odom.header.frame_id = odomFrame;
         dog_odom.child_frame_id = robotFrame;
         dog_odom.header.stamp = this->now();
 
-        // dog_odom.pose.pose.position.x = rosgaitstate.position[0];
-        // dog_odom.pose.pose.position.y = rosgaitstate.position[1];
-        // dog_odom.pose.pose.position.z = rosgaitstate.position[2]; 
+        //position
+        dog_odom.pose.pose.position.x = rosgaitstate.position[0];
+        dog_odom.pose.pose.position.y = rosgaitstate.position[1];
+        dog_odom.pose.pose.position.z = rosgaitstate.position[2];
+        //orientation
+        dog_odom.pose.pose.orientation.w = rosgaitstate.imu_state.quaternion[0];
+        dog_odom.pose.pose.orientation.x = rosgaitstate.imu_state.quaternion[1];
+        dog_odom.pose.pose.orientation.y = rosgaitstate.imu_state.quaternion[2];
+        dog_odom.pose.pose.orientation.z = rosgaitstate.imu_state.quaternion[3];
+        //linear
+        dog_odom.twist.twist.linear.x = rosgaitstate.velocity[0];
+        dog_odom.twist.twist.linear.y = rosgaitstate.velocity[1];
+        dog_odom.twist.twist.linear.z = rosgaitstate.velocity[2];
+        //angular
+        dog_odom.twist.twist.angular.x = rosgaitstate.imu_state.gyroscope[0];
+        dog_odom.twist.twist.angular.y = rosgaitstate.imu_state.gyroscope[1];
+        dog_odom.twist.twist.angular.z = rosgaitstate.imu_state.gyroscope[2];
 
-        // dog_odom.pose.pose.orientation.w = rosgaitstate.quaternion[0];
-        // dog_odom.pose.pose.orientation.x = rosgaitstate.quaternion[1];
-        // dog_odom.pose.pose.orientation.y = rosgaitstate.quaternion[2];
-        // dog_odom.pose.pose.orientation.z = rosgaitstate.quaternion[3];
-
-        // dog_odom.twist.twist.linear.x = rosgaitstate.velocity[0];
-        // dog_odom.twist.twist.linear.y = rosgaitstate.velocity[1];
-        // dog_odom.twist.twist.linear.z = rosgaitstate.velocity[2];
-
-        // dog_odom.twist.twist.angular.x = rosgaitstate.gyroscope[0];
-        // dog_odom.twist.twist.angular.y = rosgaitstate.gyroscope[1];
-        // dog_odom.twist.twist.angular.z = rosgaitstate.gyroscope[2];
-
-        dog_odom_pub->publish(dog_odom);
+        dog_odom_flag = true;
     }
 
     void rosgaitcmdCallback(const unitree_interfaces::msg::GaitCmd::SharedPtr msg){
@@ -472,7 +501,7 @@ private:
     rclcpp::Client<techshare_ros_pkg2::srv::ChangeDriveMode>::SharedPtr change_drivemode_srv_client_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr dog_odom_pub; // Publishes odom to ROS
     nav_msgs::msg::Odometry dog_odom;  // odom data
-
+    sensor_msgs::msg::Imu imu_msg;
     // rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr driving_mode_sub_;
 
 
@@ -486,12 +515,13 @@ private:
     float battery_current;                 // Battery current
     bool fixed_stand;
     bool remotelyControlled, stand;
+    bool imu_msg_flag, dog_odom_flag, drivemode_srv_client_flag;
     int driving_mode = 0;
     int prev_driving_mode = 0;
     rclcpp::Time last_message_time_;
-    rclcpp::TimerBase::SharedPtr timer_, delay_timer_; // ROS2 timer
-    sensor_msgs::msg::Imu imu_msg;
+    rclcpp::TimerBase::SharedPtr timer_, delay_timer_ ,rawDataTimer; // ROS2 timer
     unitree_api::msg::Request req; // Unitree Go2 ROS2 request message
+    unitree_go::msg::SportModeState rosgaitstate;
     SportClient sport_req;
     std::mutex mutex_;
     //link names
@@ -508,6 +538,7 @@ private:
     double px0 = 0;  // initial x position
     double py0 = 0;  // initial y position
     double yaw0 = 0; // initial yaw angle
+    std::once_flag flag;
 };
 
 int main(int argc, char *argv[])
