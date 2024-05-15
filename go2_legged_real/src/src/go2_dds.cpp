@@ -464,6 +464,11 @@ private:
         {
             return;
         }
+        if (driving_mode == 6){
+            sport_req.BalanceStand(req_);
+            req_puber->publish(req_);
+            return;
+        }
         float x_vel= msg->velocity[0];
         float y_vel = msg->velocity[1];
         float yaw_vel = msg->yaw_speed;
