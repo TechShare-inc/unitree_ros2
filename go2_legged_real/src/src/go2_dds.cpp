@@ -16,6 +16,8 @@
 #include "sensor_msgs/msg/imu.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include <std_msgs/msg/int8.hpp>
+#include <std_msgs/msg/string.hpp>
+#include "std_srvs/srv/trigger.hpp"
 #include <chrono>
 #define INFO_IMU 0        // Set 1 to info IMU states
 #define INFO_MOTOR 0      // Set 1 to info motor states
@@ -25,6 +27,15 @@
 #define HIGH_FREQ 1 // Set 1 to subscribe to low states with high frequencies (500Hz)
 using std::placeholders::_1;
 // Create a GO2DDS class for soprt commond request
+
+enum KeyValue
+{
+    START = 4,
+    L1_A = 258,
+    L2_R2 = 48,
+    L1_Y = 2050
+};
+
 class GO2DDS : public rclcpp::Node
 {
 public:
@@ -62,8 +73,10 @@ public:
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
         imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
         dog_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>(robotOdometry,1);
-
+        key_value_pub_ = this->create_publisher<std_msgs::msg::String>("remote_toweb_cmd",10);
         change_drivemode_srv_client_ = this->create_client<techshare_ros_pkg2::srv::ChangeDriveMode>("change_driving_mode");
+        kill_all_client_ = this->create_client<std_srvs::srv::Trigger>("killall");
+
         last_message_time_ = this->get_clock()->now();
         timer_ = this->create_wall_timer(
             std::chrono::seconds(1),
@@ -486,12 +499,40 @@ private:
 
     void wirelessControllerCallback(const unitree_go::msg::WirelessController::SharedPtr data)
     {
-        // lx: Left joystick x value
-        // ly: Left joystick y value
-        // rx: Right joystick x value
-        // ry: Right joystick y value
-        // keys value
+        static bool l2_r2 = false;
+        static bool start = true;
+        static bool l1_a = false;
+        static bool l1_y = false;
+        static std_msgs::msg::String ss;
+        uint16_t keyValue = data->keys;
+        if(keyValue == L2_R2 && !l2_r2){
+            l2_r2 = true;
+            //call killall
+            auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+            kill_all_client_->async_send_request(request);
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L2+R2(call killall service) has been  pressed.\033[0m");
+        }else if (keyValue == L1_A && !l1_a){
+            //call key add point
+            l1_a = true;
+            start = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+A(add a point) has been  pressed.\033[0m");
+            ss.data = "L1A";
+            key_value_pub_->publish(ss);
+        }else if (keyValue == L1_Y && !l1_y){
+            //call key add point
+            l1_y = true;
+            start = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+Y(save_graph) has been  pressed.\033[0m");
+            ss.data = "L1Y";
+            key_value_pub_->publish(ss);
+        }else if (keyValue == START){
+            start = true;
+            l1_a = false;
+            l1_y = false;
+            l2_r2 = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value START has been pressed.\033[0m");
 
+        }
         RCLCPP_INFO(this->get_logger(), "Wireless controller -- lx: %f; ly: %f; rx: %f; ry: %f; key value: %d",
                     data->lx, data->ly, data->rx, data->ry, data->keys);
     }
@@ -504,9 +545,13 @@ private:
     rclcpp::Subscription<unitree_go::msg::SportModeState>::SharedPtr sportmode_state_sub_;
     rclcpp::Subscription<techshare_ros_pkg2::msg::ControllerMsg>::SharedPtr remote_controller_sub_;
     rclcpp::Client<techshare_ros_pkg2::srv::ChangeDriveMode>::SharedPtr change_drivemode_srv_client_;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr kill_all_client_;
+
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr dog_odom_pub; // Publishes odom to ROS
     nav_msgs::msg::Odometry dog_odom;  // odom data
     sensor_msgs::msg::Imu imu_msg;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr key_value_pub_;
+
     // rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr driving_mode_sub_;
 
 
