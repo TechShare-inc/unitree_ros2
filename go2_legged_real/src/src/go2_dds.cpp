@@ -52,7 +52,7 @@ public:
         this->get_parameter("imuFrame", imuFrame);
         this->get_parameter("odomFrame", odomFrame);
         this->get_parameter("robotFrame", robotFrame);
-                // 2. Retrieve the parameter value
+        // 2. Retrieve the parameter value
         std::string cmd_vel_topic;
         this->get_parameter("cmd_vel_topic", cmd_vel_topic);
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
@@ -67,7 +67,7 @@ public:
         low_state_sub_ = this->create_subscription<unitree_go::msg::LowState>(
             "/lowstate", 1, std::bind(&GO2DDS::lowStateCallback, this, _1));
         sportmode_state_sub_ = this->create_subscription<unitree_go::msg::SportModeState>(
-            "/lf/sportmodestate", 1, std::bind(&GO2DDS::sportmodeStateCallback, this, _1));
+            "/sportmodestate", 1, std::bind(&GO2DDS::sportmodeStateCallback, this, _1));
 
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
@@ -104,6 +104,8 @@ private:
         // Publish the IMU message
         if (imu_msg_flag && dog_odom_flag){
             makeFakeCovariance(imu_msg); // this is called only once
+            dog_odom.header.stamp = this->now();
+            imu_msg.header.stamp = this->now();
             imu_pub_->publish(imu_msg);
             dog_odom_pub->publish(dog_odom);
         }
