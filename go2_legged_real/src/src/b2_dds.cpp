@@ -17,6 +17,8 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include <std_msgs/msg/int8.hpp>
 #include <chrono>
+#include <std_msgs/msg/string.hpp>
+#include "std_srvs/srv/trigger.hpp"
 #define INFO_IMU 0        // Set 1 to info IMU states
 #define INFO_MOTOR 0      // Set 1 to info motor states
 #define INFO_FOOT_FORCE 0 // Set 1 to info foot force states
@@ -25,12 +27,19 @@
 #define HIGH_FREQ 1 // Set 1 to subscribe to low states with high frequencies (500Hz)
 using std::placeholders::_1;
 // Create a B2DDS class for soprt commond request
+enum KeyValue
+{
+    START = 4,
+    L1_A = 258,
+    L2_R2 = 48,
+    L1_Y = 2050
+};
 class B2DDS : public rclcpp::Node
 {
 public:
     B2DDS() : Node("go2_dds")
     {
-        this->declare_parameter<std::string>("cmd_vel_topic", "go2_cmd_vel");
+        this->declare_parameter<std::string>("cmd_vel_topic", "b2_cmd_vel");
                 // 2. Retrieve the parameter value
         std::string cmd_vel_topic;
         this->get_parameter("cmd_vel_topic", cmd_vel_topic);
@@ -45,6 +54,10 @@ public:
             "/lowstate", 1, std::bind(&B2DDS::lowStateCallback, this, _1));
         sportmode_state_sub_ = this->create_subscription<unitree_go::msg::SportModeState>(
             "/lf/sportmodestate", 1, std::bind(&B2DDS::sportmodeStateCallback, this, _1));
+        rosgaitcmd_sub_ = this->create_subscription<unitree_interfaces::msg::GaitCmd>(
+            "rosgaitcmd", 10, std::bind(&B2DDS::rosgaitcmdCallback, this, std::placeholders::_1));
+        key_value_pub_ = this->create_publisher<std_msgs::msg::String>("remote_toweb_cmd",10);
+        kill_all_client_ = this->create_client<std_srvs::srv::Trigger>("killall");
 
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
@@ -290,21 +303,64 @@ private:
             req_puber->publish(req);
         }
     }
-
+    void rosgaitcmdCallback(const unitree_interfaces::msg::GaitCmd::SharedPtr msg){
+        static unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
+        if (std::abs(msg->velocity[0]) < 1e-9 &&
+            std::abs(msg->velocity[1]) < 1e-9 &&
+            std::abs(msg->yaw_speed) < 1e-9)
+        {
+            return;
+        }
+        if (driving_mode == 6){
+            sport_req.BalanceStand(req_);
+            req_puber->publish(req_);
+            return;
+        }
+    }
     void wirelessControllerCallback(const unitree_go::msg::WirelessController::SharedPtr data)
     {
-        // lx: Left joystick x value
-        // ly: Left joystick y value
-        // rx: Right joystick x value
-        // ry: Right joystick y value
-        // keys value
+        static bool l2_r2 = false;
+        static bool start = true;
+        static bool l1_a = false;
+        static bool l1_y = false;
+        static std_msgs::msg::String ss;
+        uint16_t keyValue = data->keys;
+        if(keyValue == L2_R2 && !l2_r2){
+            l2_r2 = true;
+            //call killall
+            auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+            kill_all_client_->async_send_request(request);
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L2+R2(call killall service) has been  pressed.\033[0m");
+        }else if (keyValue == L1_A && !l1_a){
+            //call key add point
+            l1_a = true;
+            start = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+A(add a point) has been  pressed.\033[0m");
+            ss.data = "L1A";
+            key_value_pub_->publish(ss);
+        }else if (keyValue == L1_Y && !l1_y){
+            //call key add point
+            l1_y = true;
+            start = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+Y(save_graph) has been  pressed.\033[0m");
+            ss.data = "L1Y";
+            key_value_pub_->publish(ss);
+        }else if (keyValue == START){
+            start = true;
+            l1_a = false;
+            l1_y = false;
+            l2_r2 = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value START has been pressed.\033[0m");
 
+        }
         RCLCPP_INFO(this->get_logger(), "Wireless controller -- lx: %f; ly: %f; rx: %f; ry: %f; key value: %d",
                     data->lx, data->ly, data->rx, data->ry, data->keys);
     }
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
     rclcpp::Subscription<unitree_go::msg::WirelessController>::SharedPtr wireless_sub_;
+    rclcpp::Subscription<unitree_interfaces::msg::GaitCmd>::SharedPtr rosgaitcmd_sub_;
+
     // Create the suber  to receive low state of robot
     rclcpp::Subscription<unitree_go::msg::LowState>::SharedPtr low_state_sub_;
     rclcpp::Subscription<unitree_go::msg::SportModeState>::SharedPtr sportmode_state_sub_;
@@ -312,6 +368,8 @@ private:
     rclcpp::Client<techshare_ros_pkg2::srv::ChangeDriveMode>::SharedPtr change_drivemode_srv_client_;
     // rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr driving_mode_sub_;
 
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr key_value_pub_;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr kill_all_client_;
 
     rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr req_puber;
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
