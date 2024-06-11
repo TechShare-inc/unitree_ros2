@@ -41,7 +41,7 @@ class GO2DDS : public rclcpp::Node
 public:
     GO2DDS() : Node("go2_dds"), fixed_stand(true),remotelyControlled(false), stand(false),imu_msg_flag(false), dog_odom_flag(false),drivemode_srv_client_flag(false)
     {
-        this->declare_parameter<std::string>("cmd_vel_topic", "go2_cmd_vel");
+        this->declare_parameter<std::string>("cmd_vel_topic", "msg_cmd_vel");
         this->declare_parameter("imuFrame", "imu_link");
         this->declare_parameter("odomFrame", "odom");
         this->declare_parameter("imuTopic", "imu/data");
@@ -56,7 +56,7 @@ public:
         std::string cmd_vel_topic;
         this->get_parameter("cmd_vel_topic", cmd_vel_topic);
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            cmd_vel_topic, 1, std::bind(&GO2DDS::cmdVelCallback, this, std::placeholders::_1));
+            "msg_cmd_vel", 1, std::bind(&GO2DDS::cmdVelCallback, this, std::placeholders::_1));
         remote_controller_sub_ = this->create_subscription<techshare_ros_pkg2::msg::ControllerMsg>(
             "controller_status", 1, std::bind(&GO2DDS::remoteControllerCallback, this, std::placeholders::_1));
         // the cmd_puber is set to subscribe "/wirelesscontroller" topic
@@ -73,12 +73,13 @@ public:
         imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
         dog_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>(robotOdometry,1);
         key_value_pub_ = this->create_publisher<std_msgs::msg::String>("remote_toweb_cmd",10);
+        cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("go2_cmd_vel",10);
         change_drivemode_srv_client_ = this->create_client<techshare_ros_pkg2::srv::ChangeDriveMode>("change_driving_mode");
         kill_all_client_ = this->create_client<std_srvs::srv::Trigger>("killall");
 
         last_message_time_ = this->get_clock()->now();
         timer_ = this->create_wall_timer(
-            std::chrono::seconds(1),
+            std::chrono::milliseconds(500),
             std::bind(&GO2DDS::timerCallback, this)
         );
         double pub_rate = 400.0f;
@@ -251,8 +252,10 @@ private:
         if ((now - last_message_time_).seconds() >= 1.0) {
             remotelyControlled = false;
             RCLCPP_INFO(this->get_logger(), "\033[1;33mNo message received for more than 1 second.\033[0m");
+            
         }
-        
+        cmd_vel_pub_->publish(go2_cmd_vel_msg);
+        go2_cmd_vel_msg = zero_twist;
     }
 
     // void send_request(int& value) {
@@ -332,6 +335,7 @@ private:
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
         std::lock_guard<std::mutex> lock(mutex_); 
+        go2_cmd_vel_msg = *msg;
         if (msg->linear.z != 0.0 && !remotelyControlled){
             // stop the move
             // sport_req.StopMove(req);
@@ -455,6 +459,8 @@ private:
     }
 
     void rosgaitcmdCallback(const unitree_interfaces::msg::GaitCmd::SharedPtr msg){
+        std::lock_guard<std::mutex> lock(mutex_); 
+
         static unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
         RCLCPP_INFO(this->get_logger(), "\033[34mReceived GaitCmd:");
         RCLCPP_INFO(this->get_logger(), "  Mode: %u", msg->mode);
@@ -484,6 +490,9 @@ private:
         float x_vel= msg->velocity[0];
         float y_vel = msg->velocity[1];
         float yaw_vel = msg->yaw_speed;
+        go2_cmd_vel_msg.linear.x = x_vel;
+        go2_cmd_vel_msg.linear.y = y_vel;
+        go2_cmd_vel_msg.angular.z = yaw_vel;
         if (gait_type_ == 3 || gait_type_ == 4){
             if(x_vel>0){
                 x_vel=0.1;
@@ -546,7 +555,13 @@ private:
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr kill_all_client_;
 
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr dog_odom_pub; // Publishes odom to ROS
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_; // Publishes odom to ROS
+
+    
     nav_msgs::msg::Odometry dog_odom;  // odom data
+    geometry_msgs::msg::Twist go2_cmd_vel_msg;  // odom data
+    geometry_msgs::msg::Twist zero_twist;  // odom data
+
     sensor_msgs::msg::Imu imu_msg;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr key_value_pub_;
 
