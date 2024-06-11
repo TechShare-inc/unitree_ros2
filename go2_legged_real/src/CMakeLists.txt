@@ -60,6 +60,7 @@ add_executable(read_wireless_controller src/read_wireless_controller.cpp)
 add_executable(record_bag src/record_bag.cpp)
 add_executable(sport_mode_ctrl src/sport_mode_ctrl.cpp src/common/ros2_sport_client.cpp)
 add_executable(go2_dds src/go2_dds.cpp src/common/ros2_sport_client.cpp)
+add_executable(b2_dds src/b2_dds.cpp src/common/ros2_sport_client.cpp)
 add_executable(thermo_monitor src/thermo_monitor.cpp)
 add_executable(go2_front_camera src/go2_front_camera.cpp)
 target_link_libraries(go2_front_camera ${OpenCV_LIBS})
@@ -71,6 +72,7 @@ ament_target_dependencies(read_wireless_controller ${DEPENDENCY_LIST})
 ament_target_dependencies(record_bag ${DEPENDENCY_LIST})
 ament_target_dependencies(sport_mode_ctrl ${DEPENDENCY_LIST})
 ament_target_dependencies(go2_dds ${DEPENDENCY_LIST})
+ament_target_dependencies(b2_dds ${DEPENDENCY_LIST})
 ament_target_dependencies(thermo_monitor ${DEPENDENCY_LIST})
 ament_target_dependencies(go2_front_camera ${DEPENDENCY_LIST} )
 
@@ -84,6 +86,7 @@ install(TARGETS
         record_bag
         sport_mode_ctrl
         go2_dds
+        b2_dds
         thermo_monitor
         go2_front_camera
         DESTINATION lib/${PROJECT_NAME})
