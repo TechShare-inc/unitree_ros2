@@ -16,6 +16,8 @@
 #include "sensor_msgs/msg/imu.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include <std_msgs/msg/int8.hpp>
+#include <std_msgs/msg/string.hpp>
+#include "std_srvs/srv/trigger.hpp"
 #include <chrono>
 #define INFO_IMU 0        // Set 1 to info IMU states
 #define INFO_MOTOR 0      // Set 1 to info motor states
@@ -25,6 +27,15 @@
 #define HIGH_FREQ 1 // Set 1 to subscribe to low states with high frequencies (500Hz)
 using std::placeholders::_1;
 // Create a GO2DDS class for soprt commond request
+
+enum KeyValue
+{
+    START = 4,
+    L1_A = 258,
+    L2_R2 = 48,
+    L1_Y = 2050
+};
+
 class GO2DDS : public rclcpp::Node
 {
 public:
@@ -41,7 +52,7 @@ public:
         this->get_parameter("imuFrame", imuFrame);
         this->get_parameter("odomFrame", odomFrame);
         this->get_parameter("robotFrame", robotFrame);
-                // 2. Retrieve the parameter value
+        // 2. Retrieve the parameter value
         std::string cmd_vel_topic;
         this->get_parameter("cmd_vel_topic", cmd_vel_topic);
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
@@ -53,17 +64,18 @@ public:
             "/wirelesscontroller", 10, std::bind(&GO2DDS::wirelessControllerCallback, this, _1));
         rosgaitcmd_sub_ = this->create_subscription<unitree_interfaces::msg::GaitCmd>(
             "rosgaitcmd", 10, std::bind(&GO2DDS::rosgaitcmdCallback, this, std::placeholders::_1));
-        low_state_sub_ = this->create_subscription<unitree_go::msg::LowState>(
-            "/lowstate", 1, std::bind(&GO2DDS::lowStateCallback, this, _1));
+
         sportmode_state_sub_ = this->create_subscription<unitree_go::msg::SportModeState>(
-            "/lf/sportmodestate", 1, std::bind(&GO2DDS::sportmodeStateCallback, this, _1));
+            "/sportmodestate", 1, std::bind(&GO2DDS::sportmodeStateCallback, this, _1));
 
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
         imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
         dog_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>(robotOdometry,1);
-
+        key_value_pub_ = this->create_publisher<std_msgs::msg::String>("remote_toweb_cmd",10);
         change_drivemode_srv_client_ = this->create_client<techshare_ros_pkg2::srv::ChangeDriveMode>("change_driving_mode");
+        kill_all_client_ = this->create_client<std_srvs::srv::Trigger>("killall");
+
         last_message_time_ = this->get_clock()->now();
         timer_ = this->create_wall_timer(
             std::chrono::seconds(1),
@@ -90,7 +102,7 @@ private:
     void rawDataPubCallback(){
         // Publish the IMU message
         if (imu_msg_flag && dog_odom_flag){
-            makeFakeCovariance(imu_msg); // this is called only once
+            // makeFakeCovariance(imu_msg); // this is called only once
             imu_pub_->publish(imu_msg);
             dog_odom_pub->publish(dog_odom);
         }
@@ -105,7 +117,7 @@ private:
 
     void sportmodeStateCallback(const unitree_go::msg::SportModeState::SharedPtr msg)
     {
-        getOdom();
+
         /*
         class TerrainType(Enum):
 
@@ -116,14 +128,11 @@ private:
             FIXEDSTAND = 6
             DUMP = 7
 
-            #special mode
-            CLIMBUP = 103
-            CLIMBDOWN = 104
-            SLOPEUP = 203
-            SLOPEDOWN = 205
         the above enum represents a drivining mode index in HALNA SYSTEM
         */
         rosgaitstate = *msg;
+        getOdom();
+        getImuData();
         gait_type_ = msg->gait_type;
         RCLCPP_INFO(
             this->get_logger(),
@@ -164,69 +173,68 @@ private:
         }
 
     }
-      void lowStateCallback(unitree_go::msg::LowState::SharedPtr data)
-    {
-        imu = data->imu_state;
-        getImuData();
-    if (INFO_IMU)
-    {
-      // Info IMU states
-      // RPY euler angle(ZYX order respected to body frame)
-      // Quaternion
-      // Gyroscope (raw data)
-      // Accelerometer (raw data)
+//       void lowStateCallback(unitree_go::msg::LowState::SharedPtr data)
+//     {
+        
+//     if (INFO_IMU)
+//     {
+//       // Info IMU states
+//       // RPY euler angle(ZYX order respected to body frame)
+//       // Quaternion
+//       // Gyroscope (raw data)
+//       // Accelerometer (raw data)
       
 
-      RCLCPP_INFO(this->get_logger(), "\033[33mEuler angle -- roll: %f; pitch: %f; yaw: %f\033[0m", imu.rpy[0], imu.rpy[1], imu.rpy[2]);
-    //   RCLCPP_INFO(this->get_logger(), "\033[33mQuaternion -- qw: %f; qx: %f; qy: %f; qz: %f\033[0m",
-    //               imu.quaternion[0], imu.quaternion[1], imu.quaternion[2], imu.quaternion[3]);
-    //   RCLCPP_INFO(this->get_logger(), "\033[1;33mGyroscope -- wx: %f; wy: %f; wz: %f\033[0m", imu.gyroscope[0], imu.gyroscope[1], imu.gyroscope[2]);
-    //   RCLCPP_INFO(this->get_logger(), "\033[1;33mAccelerometer -- ax: %f; ay: %f; az: %f\033[0m",
-    //               imu.accelerometer[0], imu.accelerometer[1], imu.accelerometer[2]);
-    }
+//       RCLCPP_INFO(this->get_logger(), "\033[33mEuler angle -- roll: %f; pitch: %f; yaw: %f\033[0m", imu.rpy[0], imu.rpy[1], imu.rpy[2]);
+//     //   RCLCPP_INFO(this->get_logger(), "\033[33mQuaternion -- qw: %f; qx: %f; qy: %f; qz: %f\033[0m",
+//     //               imu.quaternion[0], imu.quaternion[1], imu.quaternion[2], imu.quaternion[3]);
+//     //   RCLCPP_INFO(this->get_logger(), "\033[1;33mGyroscope -- wx: %f; wy: %f; wz: %f\033[0m", imu.gyroscope[0], imu.gyroscope[1], imu.gyroscope[2]);
+//     //   RCLCPP_INFO(this->get_logger(), "\033[1;33mAccelerometer -- ax: %f; ay: %f; az: %f\033[0m",
+//     //               imu.accelerometer[0], imu.accelerometer[1], imu.accelerometer[2]);
+//     }
 
-    if (INFO_MOTOR)
-    {
-      // Info motor states
-      // q: angluar (rad)
-      // dq: angluar velocity (rad/s)
-      // ddq: angluar acceleration (rad/(s^2))
-      // tau_est: Estimated external torque
+//     if (INFO_MOTOR)
+//     {
+//       // Info motor states
+//       // q: angluar (rad)
+//       // dq: angluar velocity (rad/s)
+//       // ddq: angluar acceleration (rad/(s^2))
+//       // tau_est: Estimated external torque
 
-      for (int i = 0; i < 12; i++)
-      {
-        motor[i] = data->motor_state[i];
-        RCLCPP_INFO(this->get_logger(), "Motor state -- num: %d; q: %f; dq: %f; ddq: %f; tau: %f",
-                    i, motor[i].q, motor[i].dq, motor[i].ddq, motor[i].tau_est);
-      }
-    }
+//       for (int i = 0; i < 12; i++)
+//       {
+//         motor[i] = data->motor_state[i];
+//         RCLCPP_INFO(this->get_logger(), "Motor state -- num: %d; q: %f; dq: %f; ddq: %f; tau: %f",
+//                     i, motor[i].q, motor[i].dq, motor[i].ddq, motor[i].tau_est);
+//       }
+//     }
 
-    if (INFO_FOOT_FORCE)
-    {
-      // Info foot force value (int not true value)
-      for (int i = 0; i < 4; i++)
-      {
-        foot_force[i] = data->foot_force[i];
-        foot_force_est[i] = data->foot_force_est[i];
-      }
+//     if (INFO_FOOT_FORCE)
+//     {
+//       // Info foot force value (int not true value)
+//       for (int i = 0; i < 4; i++)
+//       {
+//         foot_force[i] = data->foot_force[i];
+//         foot_force_est[i] = data->foot_force_est[i];
+//       }
 
-      RCLCPP_INFO(this->get_logger(), "Foot force -- foot0: %d; foot1: %d; foot2: %d; foot3: %d",
-                  foot_force[0], foot_force[1], foot_force[2], foot_force[3]);
-      RCLCPP_INFO(this->get_logger(), "Estimated foot force -- foot0: %d; foot1: %d; foot2: %d; foot3: %d",
-                  foot_force_est[0], foot_force_est[1], foot_force_est[2], foot_force_est[3]);
-    }
+//       RCLCPP_INFO(this->get_logger(), "Foot force -- foot0: %d; foot1: %d; foot2: %d; foot3: %d",
+//                   foot_force[0], foot_force[1], foot_force[2], foot_force[3]);
+//       RCLCPP_INFO(this->get_logger(), "Estimated foot force -- foot0: %d; foot1: %d; foot2: %d; foot3: %d",
+//                   foot_force_est[0], foot_force_est[1], foot_force_est[2], foot_force_est[3]);
+//     }
 
-    if (INFO_BATTERY)
-    {
-      // Info battery states
-      // battery current
-      // battery voltage
-      battery_current = data->power_a;
-      battery_voltage = data->power_v;
+//     if (INFO_BATTERY)
+//     {
+//       // Info battery states
+//       // battery current
+//       // battery voltage
+//       battery_current = data->power_a;
+//       battery_voltage = data->power_v;
 
-      RCLCPP_INFO(this->get_logger(), "Battery state -- current: %f; voltage: %f", battery_current, battery_voltage);
-    }
-  }
+//       RCLCPP_INFO(this->get_logger(), "Battery state -- current: %f; voltage: %f", battery_current, battery_voltage);
+//     }
+//   }
 
     void dampFunction()
     {
@@ -393,15 +401,15 @@ private:
     void getImuData()
     {
         // Create and populate an IMU message
-        
+        imu = rosgaitstate.imu_state;    
         imu_msg.header.stamp = this->now();
         imu_msg.header.frame_id = imuFrame;
-
+    
         // Orientation data (assuming you have this data)
-        imu_msg.orientation.x = imu.quaternion[0];
-        imu_msg.orientation.y = imu.quaternion[1];
-        imu_msg.orientation.z = imu.quaternion[2];
-        imu_msg.orientation.w = imu.quaternion[3];
+        imu_msg.orientation.w = imu.quaternion[0];
+        imu_msg.orientation.x = imu.quaternion[1];
+        imu_msg.orientation.y = imu.quaternion[2];
+        imu_msg.orientation.z = imu.quaternion[3];
 
         // Angular velocity data
         imu_msg.angular_velocity.x = imu.gyroscope[0];
@@ -412,6 +420,10 @@ private:
         imu_msg.linear_acceleration.x = imu.accelerometer[0];
         imu_msg.linear_acceleration.y = imu.accelerometer[1];
         imu_msg.linear_acceleration.z = imu.accelerometer[2];
+
+        // imu_msg.linear_acceleration_covariance[0] = rosgaitstate.velocity[0];
+        // imu_msg.linear_acceleration_covariance[1] = rosgaitstate.velocity[1];
+        // imu_msg.linear_acceleration_covariance[2] = rosgaitstate.velocity[2];
 
         imu_msg_flag = true;
     }
@@ -486,12 +498,40 @@ private:
 
     void wirelessControllerCallback(const unitree_go::msg::WirelessController::SharedPtr data)
     {
-        // lx: Left joystick x value
-        // ly: Left joystick y value
-        // rx: Right joystick x value
-        // ry: Right joystick y value
-        // keys value
+        static bool l2_r2 = false;
+        static bool start = true;
+        static bool l1_a = false;
+        static bool l1_y = false;
+        static std_msgs::msg::String ss;
+        uint16_t keyValue = data->keys;
+        if(keyValue == L2_R2 && !l2_r2){
+            l2_r2 = true;
+            //call killall
+            auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+            kill_all_client_->async_send_request(request);
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L2+R2(call killall service) has been  pressed.\033[0m");
+        }else if (keyValue == L1_A && !l1_a){
+            //call key add point
+            l1_a = true;
+            start = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+A(add a point) has been  pressed.\033[0m");
+            ss.data = "L1A";
+            key_value_pub_->publish(ss);
+        }else if (keyValue == L1_Y && !l1_y){
+            //call key add point
+            l1_y = true;
+            start = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+Y(save_graph) has been  pressed.\033[0m");
+            ss.data = "L1Y";
+            key_value_pub_->publish(ss);
+        }else if (keyValue == START){
+            start = true;
+            l1_a = false;
+            l1_y = false;
+            l2_r2 = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value START has been pressed.\033[0m");
 
+        }
         RCLCPP_INFO(this->get_logger(), "Wireless controller -- lx: %f; ly: %f; rx: %f; ry: %f; key value: %d",
                     data->lx, data->ly, data->rx, data->ry, data->keys);
     }
@@ -500,22 +540,22 @@ private:
     rclcpp::Subscription<unitree_go::msg::WirelessController>::SharedPtr wireless_sub_;
     rclcpp::Subscription<unitree_interfaces::msg::GaitCmd>::SharedPtr rosgaitcmd_sub_;
     // Create the suber  to receive low state of robot
-    rclcpp::Subscription<unitree_go::msg::LowState>::SharedPtr low_state_sub_;
     rclcpp::Subscription<unitree_go::msg::SportModeState>::SharedPtr sportmode_state_sub_;
     rclcpp::Subscription<techshare_ros_pkg2::msg::ControllerMsg>::SharedPtr remote_controller_sub_;
     rclcpp::Client<techshare_ros_pkg2::srv::ChangeDriveMode>::SharedPtr change_drivemode_srv_client_;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr kill_all_client_;
+
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr dog_odom_pub; // Publishes odom to ROS
     nav_msgs::msg::Odometry dog_odom;  // odom data
     sensor_msgs::msg::Imu imu_msg;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr key_value_pub_;
+
     // rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr driving_mode_sub_;
 
 
     rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr req_puber;
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
     unitree_go::msg::IMUState imu;         // Unitree go2 IMU message
-    unitree_go::msg::MotorState motor[12]; // Unitree go2 motor state message
-    int16_t foot_force[4];                 // External contact force value (int)
-    int16_t foot_force_est[4];             // Estimated  external contact force value (int)
     float battery_voltage;                 // Battery voltage
     float battery_current;                 // Battery current
     bool fixed_stand;
