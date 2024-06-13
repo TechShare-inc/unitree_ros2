@@ -70,7 +70,7 @@ public:
         imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
         dog_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>(robotOdometry,1);
         key_value_pub_ = this->create_publisher<std_msgs::msg::String>("remote_toweb_cmd",10);
-        cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("go2_cmd_vel",10);
+        cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("b2_cmd_vel",10);
         change_drivemode_srv_client_ = this->create_client<techshare_ros_pkg2::srv::ChangeDriveMode>("change_driving_mode");
         kill_all_client_ = this->create_client<std_srvs::srv::Trigger>("killall");
 
