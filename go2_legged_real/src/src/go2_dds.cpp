@@ -41,7 +41,6 @@ class GO2DDS : public rclcpp::Node
 public:
     GO2DDS() : Node("go2_dds"), fixed_stand(true),remotelyControlled(false), stand(false),imu_msg_flag(false), dog_odom_flag(false),drivemode_srv_client_flag(false)
     {
-        this->declare_parameter<std::string>("cmd_vel_topic", "msg_cmd_vel");
         this->declare_parameter("imuFrame", "imu_link");
         this->declare_parameter("odomFrame", "odom");
         this->declare_parameter("imuTopic", "imu/data");
@@ -52,9 +51,7 @@ public:
         this->get_parameter("imuFrame", imuFrame);
         this->get_parameter("odomFrame", odomFrame);
         this->get_parameter("robotFrame", robotFrame);
-        // 2. Retrieve the parameter value
-        std::string cmd_vel_topic;
-        this->get_parameter("cmd_vel_topic", cmd_vel_topic);
+
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
             "msg_cmd_vel", 1, std::bind(&GO2DDS::cmdVelCallback, this, std::placeholders::_1));
         remote_controller_sub_ = this->create_subscription<techshare_ros_pkg2::msg::ControllerMsg>(
@@ -174,68 +171,6 @@ private:
         }
 
     }
-//       void lowStateCallback(unitree_go::msg::LowState::SharedPtr data)
-//     {
-        
-//     if (INFO_IMU)
-//     {
-//       // Info IMU states
-//       // RPY euler angle(ZYX order respected to body frame)
-//       // Quaternion
-//       // Gyroscope (raw data)
-//       // Accelerometer (raw data)
-      
-
-//       RCLCPP_INFO(this->get_logger(), "\033[33mEuler angle -- roll: %f; pitch: %f; yaw: %f\033[0m", imu.rpy[0], imu.rpy[1], imu.rpy[2]);
-//     //   RCLCPP_INFO(this->get_logger(), "\033[33mQuaternion -- qw: %f; qx: %f; qy: %f; qz: %f\033[0m",
-//     //               imu.quaternion[0], imu.quaternion[1], imu.quaternion[2], imu.quaternion[3]);
-//     //   RCLCPP_INFO(this->get_logger(), "\033[1;33mGyroscope -- wx: %f; wy: %f; wz: %f\033[0m", imu.gyroscope[0], imu.gyroscope[1], imu.gyroscope[2]);
-//     //   RCLCPP_INFO(this->get_logger(), "\033[1;33mAccelerometer -- ax: %f; ay: %f; az: %f\033[0m",
-//     //               imu.accelerometer[0], imu.accelerometer[1], imu.accelerometer[2]);
-//     }
-
-//     if (INFO_MOTOR)
-//     {
-//       // Info motor states
-//       // q: angluar (rad)
-//       // dq: angluar velocity (rad/s)
-//       // ddq: angluar acceleration (rad/(s^2))
-//       // tau_est: Estimated external torque
-
-//       for (int i = 0; i < 12; i++)
-//       {
-//         motor[i] = data->motor_state[i];
-//         RCLCPP_INFO(this->get_logger(), "Motor state -- num: %d; q: %f; dq: %f; ddq: %f; tau: %f",
-//                     i, motor[i].q, motor[i].dq, motor[i].ddq, motor[i].tau_est);
-//       }
-//     }
-
-//     if (INFO_FOOT_FORCE)
-//     {
-//       // Info foot force value (int not true value)
-//       for (int i = 0; i < 4; i++)
-//       {
-//         foot_force[i] = data->foot_force[i];
-//         foot_force_est[i] = data->foot_force_est[i];
-//       }
-
-//       RCLCPP_INFO(this->get_logger(), "Foot force -- foot0: %d; foot1: %d; foot2: %d; foot3: %d",
-//                   foot_force[0], foot_force[1], foot_force[2], foot_force[3]);
-//       RCLCPP_INFO(this->get_logger(), "Estimated foot force -- foot0: %d; foot1: %d; foot2: %d; foot3: %d",
-//                   foot_force_est[0], foot_force_est[1], foot_force_est[2], foot_force_est[3]);
-//     }
-
-//     if (INFO_BATTERY)
-//     {
-//       // Info battery states
-//       // battery current
-//       // battery voltage
-//       battery_current = data->power_a;
-//       battery_voltage = data->power_v;
-
-//       RCLCPP_INFO(this->get_logger(), "Battery state -- current: %f; voltage: %f", battery_current, battery_voltage);
-//     }
-//   }
 
     void dampFunction()
     {
@@ -258,26 +193,6 @@ private:
         go2_cmd_vel_msg = zero_twist;
     }
 
-    // void send_request(int& value) {
-    //     auto request = std::make_shared<techshare_ros_pkg2::srv::ChangeDriveMode::Request>();
-    //     request->mode = value;
-
-    //     // Wait for the service to be available. You can specify a timeout duration.
-    //     if (change_drivemode_srv_client_->wait_for_service(std::chrono::seconds(5))) {
-    //         // Service is available, send the request.
-    //         auto future_result = change_drivemode_srv_client_->async_send_request(request,
-    //             [](rclcpp::Client<techshare_ros_pkg2::srv::ChangeDriveMode>::SharedFuture returned_future) {
-    //                 // This lambda function is the callback and will be called once the service response is received.
-    //                 // You can process the response here.
-    //                 auto response = returned_future.get();
-    //                 // For example, log the response (this is just a placeholder, adapt it to your actual response type)
-    //                 RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Received response: %d", response->success);
-    //             });
-    //     } else {
-    //         // Service not available after waiting.
-    //         RCLCPP_ERROR(this->get_logger(), "Service change_driving_mode not available after waiting");
-    //     }
-    // }
 
 
     void remoteControllerCallback(const techshare_ros_pkg2::msg::ControllerMsg::SharedPtr msg){
