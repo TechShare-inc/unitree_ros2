@@ -15,9 +15,12 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-g -Wall -Wextra -Wpedantic)
 endif()
 
+list(APPEND CMAKE_PREFIX_PATH "/opt/unitree_robotics/lib/cmake")
+include_directories(include 
+                    include/common 
+                    include/nlohmann
+                    )
 
-include_directories(include include/common include/nlohmann)
-link_directories(src)
 
 set (
   DEPENDENCY_LIST
@@ -51,7 +54,7 @@ find_package(OpenCV REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(techshare_ros_pkg2 REQUIRED)
-
+find_package(unitree_sdk2 REQUIRED)
 add_executable(show_rosgaitcmd src/show_rosgaitcmd.cpp)
 add_executable(low_level_ctrl src/low_level_ctrl.cpp src/common/motor_crc.cpp)
 add_executable(read_low_state src/read_low_state.cpp)
@@ -63,7 +66,9 @@ add_executable(go2_dds src/go2_dds.cpp src/common/ros2_sport_client.cpp)
 add_executable(b2_dds src/b2_dds.cpp src/common/ros2_sport_client.cpp)
 add_executable(thermo_monitor src/thermo_monitor.cpp)
 add_executable(go2_front_camera src/go2_front_camera.cpp)
+add_executable(motion_switcher src/motion_switcher.cpp)
 target_link_libraries(go2_front_camera ${OpenCV_LIBS})
+target_link_libraries(motion_switcher unitree_sdk2)
 ament_target_dependencies(show_rosgaitcmd ${DEPENDENCY_LIST})
 ament_target_dependencies(low_level_ctrl ${DEPENDENCY_LIST})
 ament_target_dependencies(read_low_state ${DEPENDENCY_LIST})
@@ -75,6 +80,7 @@ ament_target_dependencies(go2_dds ${DEPENDENCY_LIST})
 ament_target_dependencies(b2_dds ${DEPENDENCY_LIST})
 ament_target_dependencies(thermo_monitor ${DEPENDENCY_LIST})
 ament_target_dependencies(go2_front_camera ${DEPENDENCY_LIST} )
+ament_target_dependencies(motion_switcher ${DEPENDENCY_LIST} )
 
 
 install(TARGETS 
@@ -89,6 +95,7 @@ install(TARGETS
         b2_dds
         thermo_monitor
         go2_front_camera
+        motion_switcher
         DESTINATION lib/${PROJECT_NAME})
 
 
