@@ -64,6 +64,8 @@ public:
 
         sportmode_state_sub_ = this->create_subscription<unitree_go::msg::SportModeState>(
             "/sportmodestate", 1, std::bind(&GO2DDS::sportmodeStateCallback, this, _1));
+        low_state_sub_ = this->create_subscription<unitree_go::msg::LowState>(
+            "/lowstate", 1, std::bind(&GO2DDS::lowStateCallback, this, _1));
 
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
@@ -113,6 +115,11 @@ private:
 
     }
 
+    void lowStateCallback(const unitree_go::msg::LowState::SharedPtr msg){
+        imu = msg->imu_state;   
+        getImuData();
+    }
+
     void sportmodeStateCallback(const unitree_go::msg::SportModeState::SharedPtr msg)
     {
 
@@ -130,14 +137,14 @@ private:
         */
         rosgaitstate = *msg;
         getOdom();
-        getImuData();
+        
         gait_type_ = msg->gait_type;
-        RCLCPP_INFO(
-            this->get_logger(),
-            "\033[1;33mMode: %d | gait_type: %d\033[0m",
-            msg->mode,
-            msg->gait_type // Use the function to get the string representation
-        );
+        // RCLCPP_INFO(
+        //     this->get_logger(),
+        //     "\033[1;33mMode: %d | gait_type: %d\033[0m",
+        //     msg->mode,
+        //     msg->gait_type // Use the function to get the string representation
+        // );
 
         if (msg->mode == 7)//DUMP
         {
@@ -320,7 +327,7 @@ private:
     void getImuData()
     {
         // Create and populate an IMU message
-        imu = rosgaitstate.imu_state;    
+         
         imu_msg.header.stamp = this->now();
         imu_msg.header.frame_id = imuFrame;
     
@@ -329,7 +336,12 @@ private:
         imu_msg.orientation.x = imu.quaternion[1];
         imu_msg.orientation.y = imu.quaternion[2];
         imu_msg.orientation.z = imu.quaternion[3];
-
+        // // Output statement to print the quaternion values
+        // RCLCPP_INFO(this->get_logger(), "IMU Orientation Quaternion: w = %f, x = %f, y = %f, z = %f",
+        //             imu_msg.orientation.w, 
+        //             imu_msg.orientation.x, 
+        //             imu_msg.orientation.y, 
+        //             imu_msg.orientation.z);
         // Angular velocity data
         imu_msg.angular_velocity.x = imu.gyroscope[0];
         imu_msg.angular_velocity.y = imu.gyroscope[1];
@@ -465,6 +477,7 @@ private:
     rclcpp::Subscription<unitree_interfaces::msg::GaitCmd>::SharedPtr rosgaitcmd_sub_;
     // Create the suber  to receive low state of robot
     rclcpp::Subscription<unitree_go::msg::SportModeState>::SharedPtr sportmode_state_sub_;
+    rclcpp::Subscription<unitree_go::msg::LowState>::SharedPtr low_state_sub_;
     rclcpp::Subscription<techshare_ros_pkg2::msg::ControllerMsg>::SharedPtr remote_controller_sub_;
     rclcpp::Client<techshare_ros_pkg2::srv::ChangeDriveMode>::SharedPtr change_drivemode_srv_client_;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr kill_all_client_;
