@@ -191,13 +191,18 @@ private:
         // Check time since last message
         // std::lock_guard<std::mutex> lock(mutex_); 
         auto now = this->get_clock()->now();
-        if ((now - last_message_time_).seconds() >= 1.0) {
-            remotelyControlled = false;
-            RCLCPP_INFO(this->get_logger(), "\033[1;33mNo message received for more than 1 second.\033[0m");
-            
+        if(!remotelyControlled){
+            last_message_time_ = this->get_clock()->now();
         }
-        cmd_vel_pub_->publish(go2_cmd_vel_msg);
-        go2_cmd_vel_msg = zero_twist;
+        if ((now - last_message_time_).seconds() >= 1.0) {
+            if (remotelyControlled){
+                RCLCPP_INFO(this->get_logger(), "\033[1;33mNo message received for more than 1 second.\033[0m");
+                cmd_vel_pub_->publish(go2_cmd_vel_msg);
+                go2_cmd_vel_msg = zero_twist;
+                remotelyControlled = false;
+            }
+        }
+
     }
 
 
@@ -389,16 +394,16 @@ private:
         std::lock_guard<std::mutex> lock(mutex_); 
 
         static unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
-        RCLCPP_INFO(this->get_logger(), "\033[34mReceived GaitCmd:");
-        RCLCPP_INFO(this->get_logger(), "  Mode: %u", msg->mode);
-        RCLCPP_INFO(this->get_logger(), "  Gait Type: %u", msg->gait_type);
-        RCLCPP_INFO(this->get_logger(), "  Speed Level: %u", msg->speed_level);
-        RCLCPP_INFO(this->get_logger(), "  Foot Raise Height: %f", msg->foot_raise_height);
-        RCLCPP_INFO(this->get_logger(), "  Body Height: %f", msg->body_height);
-        RCLCPP_INFO(this->get_logger(), "  Position: [%f, %f]", msg->position[0], msg->position[1]);
-        RCLCPP_INFO(this->get_logger(), "  Euler Angles: [%f, %f, %f]", msg->euler[0], msg->euler[1], msg->euler[2]);
-        RCLCPP_INFO(this->get_logger(), "  Velocity: [%f, %f]", msg->velocity[0], msg->velocity[1]);
-        RCLCPP_INFO(this->get_logger(), "  Yaw Speed: %f\033[0m", msg->yaw_speed);
+        // RCLCPP_INFO(this->get_logger(), "\033[34mReceived GaitCmd:");
+        // RCLCPP_INFO(this->get_logger(), "  Mode: %u", msg->mode);
+        // RCLCPP_INFO(this->get_logger(), "  Gait Type: %u", msg->gait_type);
+        // RCLCPP_INFO(this->get_logger(), "  Speed Level: %u", msg->speed_level);
+        // RCLCPP_INFO(this->get_logger(), "  Foot Raise Height: %f", msg->foot_raise_height);
+        // RCLCPP_INFO(this->get_logger(), "  Body Height: %f", msg->body_height);
+        // RCLCPP_INFO(this->get_logger(), "  Position: [%f, %f]", msg->position[0], msg->position[1]);
+        // RCLCPP_INFO(this->get_logger(), "  Euler Angles: [%f, %f, %f]", msg->euler[0], msg->euler[1], msg->euler[2]);
+        // RCLCPP_INFO(this->get_logger(), "  Velocity: [%f, %f]", msg->velocity[0], msg->velocity[1]);
+        // RCLCPP_INFO(this->get_logger(), "  Yaw Speed: %f\033[0m", msg->yaw_speed);
         if (gait_type_ !=msg->gait_type && msg->gait_type !=0){
             sport_req.SwitchGait(req_, msg->gait_type);
             req_puber->publish(req_);
