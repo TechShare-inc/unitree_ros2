@@ -13,12 +13,19 @@
 #include "unitree_go/msg/wireless_controller.hpp"
 #include "techshare_ros_pkg2/msg/controller_msg.hpp"
 #include "techshare_ros_pkg2/srv/change_drive_mode.hpp"
+#include "techshare_ros_pkg2/srv/sdk_client.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include <std_msgs/msg/int8.hpp>
 #include <std_msgs/msg/string.hpp>
 #include "std_srvs/srv/trigger.hpp"
 #include <chrono>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <semaphore.h>
+#include <cstring>
+#include <errno.h>
 #define INFO_IMU 0        // Set 1 to info IMU states
 #define INFO_MOTOR 0      // Set 1 to info motor states
 #define INFO_FOOT_FORCE 0 // Set 1 to info foot force states
@@ -36,11 +43,49 @@ enum KeyValue
     L1_Y = 2050
 };
 
+struct SDK_CLIENT_DATA {
+    char client_name[256]; // Fixed size array for client name
+    float params[10];      // Fixed size array for parameters
+    sem_t semaphore;
+};
+
+
 class GO2DDS : public rclcpp::Node
 {
 public:
     GO2DDS() : Node("go2_dds"), fixed_stand(true),remotelyControlled(false), stand(false),imu_msg_flag(false), dog_odom_flag(false),drivemode_srv_client_flag(false)
     {
+
+        //for ipc ------------------------
+        // Try to open existing shared memory
+        shm_fd_ = shm_open("/sdk_client_shm", O_RDWR, 0666);
+        if (shm_fd_ == -1) {
+            // Shared memory doesn't exist yet, create it
+            RCLCPP_INFO(this->get_logger(), "Creating shared memory...");
+            shm_fd_ = shm_open("/sdk_client_shm", O_CREAT | O_RDWR, 0666);
+            ftruncate(shm_fd_, sizeof(SDK_CLIENT_DATA));
+
+            // Map the shared memory into the process
+            shared_memory_ = static_cast<SDK_CLIENT_DATA*>(mmap(0, sizeof(SDK_CLIENT_DATA), PROT_WRITE, MAP_SHARED, shm_fd_, 0));
+
+            if (shared_memory_ == MAP_FAILED) {
+                RCLCPP_ERROR(this->get_logger(), "Failed to map shared memory");
+                return;
+            }
+
+            // Initialize the semaphore
+            sem_init(&shared_memory_->semaphore, 1, 0); // Shared between processes
+            RCLCPP_INFO(this->get_logger(), "Shared memory and semaphore initialized.");
+        } else {
+            // Shared memory exists, just map it
+            shared_memory_ = static_cast<SDK_CLIENT_DATA*>(mmap(0, sizeof(SDK_CLIENT_DATA), PROT_WRITE, MAP_SHARED, shm_fd_, 0));
+            if (shared_memory_ == MAP_FAILED) {
+                RCLCPP_ERROR(this->get_logger(), "Failed to map shared memory");
+                return;
+            }
+            RCLCPP_INFO(this->get_logger(), "Shared memory mapped.");
+        }       
+
         this->declare_parameter("imuFrame", "imu_link");
         this->declare_parameter("odomFrame", "odom");
         this->declare_parameter("imuTopic", "imu/data");
@@ -76,6 +121,9 @@ public:
         change_drivemode_srv_client_ = this->create_client<techshare_ros_pkg2::srv::ChangeDriveMode>("change_driving_mode");
         kill_all_client_ = this->create_client<std_srvs::srv::Trigger>("killall");
 
+        go2_sdk_service_ = this->create_service<techshare_ros_pkg2::srv::SdkClient>(
+            "unitree_sdk_client", std::bind(&GO2DDS::handle_client, this, std::placeholders::_1, std::placeholders::_2));
+
         last_message_time_ = this->get_clock()->now();
         timer_ = this->create_wall_timer(
             std::chrono::milliseconds(500),
@@ -94,10 +142,28 @@ public:
 
     };
 
+    ~GO2DDS(){
+        // Clean up
+        munmap(shared_memory_, sizeof(SDK_CLIENT_DATA));
+        close(shm_fd_);
+        RCLCPP_INFO(this->get_logger(), "\033[1;33mClean up the memory\033[0m");
+
+    }
 private:
-    // void driving_mode_cb(const std_msgs::msg::Int8::SharedPtr msg){
-    //     driving_mode = msg->data;
-    // }
+ 
+    void handle_client(const std::shared_ptr<techshare_ros_pkg2::srv::SdkClient::Request> request,
+                          std::shared_ptr<techshare_ros_pkg2::srv::SdkClient::Response> response)
+    {
+        handleCommand(request->client_name, request->params);
+        response->res = 1;
+    }
+
+
+    void handleCommand(const std::string& client_name, const std::array<float, 10>& params) {
+        strncpy(shared_memory_->client_name, client_name.c_str(), sizeof(shared_memory_->client_name) - 1);
+        std::copy(params.begin(), params.end(), shared_memory_->params);
+        sem_post(&shared_memory_->semaphore);
+    }
 
     void rawDataPubCallback(){
         // Publish the IMU message
@@ -486,7 +552,7 @@ private:
     rclcpp::Subscription<techshare_ros_pkg2::msg::ControllerMsg>::SharedPtr remote_controller_sub_;
     rclcpp::Client<techshare_ros_pkg2::srv::ChangeDriveMode>::SharedPtr change_drivemode_srv_client_;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr kill_all_client_;
-
+    rclcpp::Service<techshare_ros_pkg2::srv::SdkClient>::SharedPtr go2_sdk_service_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr dog_odom_pub; // Publishes odom to ROS
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_; // Publishes odom to ROS
 
@@ -532,6 +598,10 @@ private:
     double py0 = 0;  // initial y position
     double yaw0 = 0; // initial yaw angle
     std::once_flag flag;
+
+    //for ipc
+    int shm_fd_;
+    SDK_CLIENT_DATA* shared_memory_;
 };
 
 int main(int argc, char *argv[])
