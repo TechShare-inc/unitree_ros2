@@ -13,7 +13,6 @@
 #include "unitree_go/msg/wireless_controller.hpp"
 #include "techshare_ros_pkg2/msg/controller_msg.hpp"
 #include "techshare_ros_pkg2/srv/change_drive_mode.hpp"
-#include "techshare_ros_pkg2/srv/sdk_client.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include <std_msgs/msg/int8.hpp>
@@ -33,7 +32,7 @@
 
 #define HIGH_FREQ 1 // Set 1 to subscribe to low states with high frequencies (500Hz)
 using std::placeholders::_1;
-// Create a GO2DDS class for soprt commond request
+// Create a H1DDS class for soprt commond request
 
 enum KeyValue
 {
@@ -43,30 +42,30 @@ enum KeyValue
     L1_Y = 2050
 };
 
-struct SDK_CLIENT_DATA {
-    char client_name[256]; // Fixed size array for client name
-    float params[10];      // Fixed size array for parameters
+struct CmdVelData {
+    double linear_x;
+    double linear_y;
+    double angular_z;
     sem_t semaphore;
 };
 
-
-class GO2DDS : public rclcpp::Node
+class H1DDS : public rclcpp::Node
 {
 public:
-    GO2DDS() : Node("go2_dds"), fixed_stand(true),remotelyControlled(false), stand(false),imu_msg_flag(false), dog_odom_flag(false),drivemode_srv_client_flag(false)
+    H1DDS() : Node("h1_dds"), fixed_stand(true),remotelyControlled(false), stand(false),imu_msg_flag(false), dog_odom_flag(false),drivemode_srv_client_flag(false)
     {
 
         //for ipc ------------------------
         // Try to open existing shared memory
-        shm_fd_ = shm_open("/sdk_client_shm", O_RDWR, 0666);
+        shm_fd_ = shm_open("/cmd_vel_shm", O_RDWR, 0666);
         if (shm_fd_ == -1) {
             // Shared memory doesn't exist yet, create it
             RCLCPP_INFO(this->get_logger(), "Creating shared memory...");
-            shm_fd_ = shm_open("/sdk_client_shm", O_CREAT | O_RDWR, 0666);
-            ftruncate(shm_fd_, sizeof(SDK_CLIENT_DATA));
+            shm_fd_ = shm_open("/cmd_vel_shm", O_CREAT | O_RDWR, 0666);
+            ftruncate(shm_fd_, sizeof(CmdVelData));
 
             // Map the shared memory into the process
-            shared_memory_ = static_cast<SDK_CLIENT_DATA*>(mmap(0, sizeof(SDK_CLIENT_DATA), PROT_WRITE, MAP_SHARED, shm_fd_, 0));
+            shared_memory_ = static_cast<CmdVelData*>(mmap(0, sizeof(CmdVelData), PROT_WRITE, MAP_SHARED, shm_fd_, 0));
 
             if (shared_memory_ == MAP_FAILED) {
                 RCLCPP_ERROR(this->get_logger(), "Failed to map shared memory");
@@ -78,13 +77,21 @@ public:
             RCLCPP_INFO(this->get_logger(), "Shared memory and semaphore initialized.");
         } else {
             // Shared memory exists, just map it
-            shared_memory_ = static_cast<SDK_CLIENT_DATA*>(mmap(0, sizeof(SDK_CLIENT_DATA), PROT_WRITE, MAP_SHARED, shm_fd_, 0));
+            shared_memory_ = static_cast<CmdVelData*>(mmap(0, sizeof(CmdVelData), PROT_WRITE, MAP_SHARED, shm_fd_, 0));
             if (shared_memory_ == MAP_FAILED) {
                 RCLCPP_ERROR(this->get_logger(), "Failed to map shared memory");
                 return;
             }
             RCLCPP_INFO(this->get_logger(), "Shared memory mapped.");
-        }       
+        }
+
+
+
+
+        //---------------------------------
+
+
+
 
         this->declare_parameter("imuFrame", "imu_link");
         this->declare_parameter("odomFrame", "odom");
@@ -98,40 +105,40 @@ public:
         this->get_parameter("robotFrame", robotFrame);
 
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            "msg_cmd_vel", 1, std::bind(&GO2DDS::cmdVelCallback, this, std::placeholders::_1));
+            "msg_cmd_vel", 1, std::bind(&H1DDS::cmdVelCallback, this, std::placeholders::_1));
         remote_controller_sub_ = this->create_subscription<techshare_ros_pkg2::msg::ControllerMsg>(
-            "controller_status", 1, std::bind(&GO2DDS::remoteControllerCallback, this, std::placeholders::_1));
+            "controller_status", 1, std::bind(&H1DDS::remoteControllerCallback, this, std::placeholders::_1));
         // the cmd_puber is set to subscribe "/wirelesscontroller" topic
         wireless_sub_ = this->create_subscription<unitree_go::msg::WirelessController>(
-            "/wirelesscontroller", 10, std::bind(&GO2DDS::wirelessControllerCallback, this, _1));
+            "/wirelesscontroller", 10, std::bind(&H1DDS::wirelessControllerCallback, this, _1));
         rosgaitcmd_sub_ = this->create_subscription<unitree_interfaces::msg::GaitCmd>(
-            "rosgaitcmd", 10, std::bind(&GO2DDS::rosgaitcmdCallback, this, std::placeholders::_1));
+            "rosgaitcmd", 10, std::bind(&H1DDS::rosgaitcmdCallback, this, std::placeholders::_1));
 
         sportmode_state_sub_ = this->create_subscription<unitree_go::msg::SportModeState>(
-            "/sportmodestate", 1, std::bind(&GO2DDS::sportmodeStateCallback, this, _1));
+            "/sportmodestate", 1, std::bind(&H1DDS::sportmodeStateCallback, this, _1));
         low_state_sub_ = this->create_subscription<unitree_go::msg::LowState>(
-            "/lowstate", 1, std::bind(&GO2DDS::lowStateCallback, this, _1));
+            "/lowstate", 1, std::bind(&H1DDS::lowStateCallback, this, _1));
 
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
         imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
         dog_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>(robotOdometry,1);
         key_value_pub_ = this->create_publisher<std_msgs::msg::String>("remote_toweb_cmd",10);
-        cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("go2_cmd_vel",10);
+        cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("h1_cmd_vel",10);
         change_drivemode_srv_client_ = this->create_client<techshare_ros_pkg2::srv::ChangeDriveMode>("change_driving_mode");
         kill_all_client_ = this->create_client<std_srvs::srv::Trigger>("killall");
 
-        go2_sdk_service_ = this->create_service<techshare_ros_pkg2::srv::SdkClient>(
-            "unitree_sdk_client", std::bind(&GO2DDS::handle_client, this, std::placeholders::_1, std::placeholders::_2));
-
         last_message_time_ = this->get_clock()->now();
-
+        timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(500),
+            std::bind(&H1DDS::timerCallback, this)
+        );
         double pub_rate = 400.0f;
         double T = 1.0 / pub_rate * 1000.f;   
         auto time = std::chrono::duration<long, std::ratio<1, 1000>>(int(T));
         rawDataTimer = this->create_wall_timer(
             time,
-            std::bind(&GO2DDS::rawDataPubCallback, this)
+            std::bind(&H1DDS::rawDataPubCallback, this)
         );
         if (change_drivemode_srv_client_->wait_for_service(std::chrono::seconds(5))){
             drivemode_srv_client_flag = true;
@@ -139,35 +146,24 @@ public:
 
     };
 
-    ~GO2DDS(){
+    ~H1DDS(){
         // Clean up
-        munmap(shared_memory_, sizeof(SDK_CLIENT_DATA));
+        munmap(shared_memory_, sizeof(CmdVelData));
         close(shm_fd_);
-        RCLCPP_INFO(this->get_logger(), "\033[1;33mClean up the memory\033[0m");
-
     }
+
+
 private:
- 
-    void handle_client(const std::shared_ptr<techshare_ros_pkg2::srv::SdkClient::Request> request,
-                          std::shared_ptr<techshare_ros_pkg2::srv::SdkClient::Response> response)
-    {
-        handleCommand(request->client_name, request->params);
-        response->res = 1;
-    }
-
-
-    void handleCommand(const std::string& client_name, const std::array<float, 10>& params) {
-        strncpy(shared_memory_->client_name, client_name.c_str(), sizeof(shared_memory_->client_name) - 1);
-        std::copy(params.begin(), params.end(), shared_memory_->params);
-        sem_post(&shared_memory_->semaphore);
-    }
+    // void driving_mode_cb(const std_msgs::msg::Int8::SharedPtr msg){
+    //     driving_mode = msg->data;
+    // }
 
     void rawDataPubCallback(){
         // Publish the IMU message
         if (imu_msg_flag && dog_odom_flag){
             // makeFakeCovariance(imu_msg); // this is called only once
-            imu_pub_->publish(imu_msg);
-            dog_odom_pub->publish(dog_odom);
+            
+            // dog_odom_pub->publish(dog_odom);
         }
         // if (imu_msg == nullptr) {
         //     std::cout << "imu msg is null" << std::endl;
@@ -181,6 +177,7 @@ private:
     void lowStateCallback(const unitree_go::msg::LowState::SharedPtr msg){
         imu = msg->imu_state;   
         getImuData();
+        imu_pub_->publish(imu_msg);
     }
 
     void sportmodeStateCallback(const unitree_go::msg::SportModeState::SharedPtr msg)
@@ -250,6 +247,23 @@ private:
         delay_timer_->cancel();
     }
 
+    void timerCallback() {
+        // Check time since last message
+        // std::lock_guard<std::mutex> lock(mutex_); 
+        auto now = this->get_clock()->now();
+        if(!remotelyControlled){
+            last_message_time_ = this->get_clock()->now();
+        }
+        if ((now - last_message_time_).seconds() >= 1.0) {
+            if (remotelyControlled){
+                RCLCPP_INFO(this->get_logger(), "\033[1;33mNo message received for more than 1 second.\033[0m");
+                cmd_vel_pub_->publish(h1_cmd_vel_msg);
+                h1_cmd_vel_msg = zero_twist;
+                remotelyControlled = false;
+            }
+        }
+
+    }
 
 
 
@@ -258,7 +272,7 @@ private:
         remotelyControlled = true;
         last_message_time_ = this->get_clock()->now();
         bool action = true;
-        unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
+        unitree_api::msg::Request req_; // Unitree H1 ROS2 request message
         /*
         Gait enumeration value, with values ranging from 0 to 4, 
         where 0 is idle, 1 is trot, 2 is trot running, 
@@ -308,8 +322,11 @@ private:
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
         std::lock_guard<std::mutex> lock(mutex_); 
-        go2_cmd_vel_msg = *msg;
-        if (abs(msg->linear.z) >0.1){
+        h1_cmd_vel_msg = *msg;
+        if (msg->linear.z != 0.0 && !remotelyControlled){
+            // stop the move
+            // sport_req.StopMove(req);
+            // req_puber->publish(req);
 
             if (msg->linear.z < 0){
                 RCLCPP_INFO(this->get_logger(), "\033[1;36m----->Stand down\033[0m");
@@ -317,7 +334,7 @@ private:
                 // Set up the timer for 2 seconds delay
                 delay_timer_ = this->create_wall_timer(
                     std::chrono::seconds(2), 
-                    std::bind(&GO2DDS::dampFunction, this));
+                    std::bind(&H1DDS::dampFunction, this));
             }else {
                 RCLCPP_INFO(this->get_logger(), "\033[1;34m----->Stand up\033[0m");
                 sport_req.StandUp(req);
@@ -330,12 +347,7 @@ private:
                 req_puber->publish(req);
             }
             RCLCPP_INFO(this->get_logger(), "\033[1;32m----->Moving\033[0m");
-            sport_req.Move(req, msg->linear.x, msg->linear.y, msg->angular.z);
-            req_puber->publish(req);
-            go2_cmd_vel_msg.linear.x = msg->linear.x;
-            go2_cmd_vel_msg.linear.y = msg->linear.y;
-            go2_cmd_vel_msg.angular.z = msg->angular.z;
-            cmd_vel_pub_->publish(go2_cmd_vel_msg);
+            publishMove();
         }
     }
     void makeFakeCovariance(sensor_msgs::msg::Imu& imu_msg_){
@@ -437,20 +449,23 @@ private:
         dog_odom_flag = true;
     }
 
+    void publishMove(){
+        // static unitree_api::msg::Request req_; // Unitree H1 ROS2 request message
+        // sport_req.Move(req_, h1_cmd_vel_msg.linear.x , h1_cmd_vel_msg.linear.y , h1_cmd_vel_msg.angular.z);
+        // req_puber->publish(req_);       
+        // Write cmd_vel data to shared memory
+        shared_memory_->linear_x = h1_cmd_vel_msg.linear.x;
+        shared_memory_->linear_y = h1_cmd_vel_msg.linear.y;
+        shared_memory_->angular_z = h1_cmd_vel_msg.angular.z;
+        // Post the semaphore to signal the other process
+        sem_post(&shared_memory_->semaphore);
+    }
+
+
     void rosgaitcmdCallback(const unitree_interfaces::msg::GaitCmd::SharedPtr msg){
         std::lock_guard<std::mutex> lock(mutex_); 
 
-        static unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
-        // RCLCPP_INFO(this->get_logger(), "\033[34mReceived GaitCmd:");
-        // RCLCPP_INFO(this->get_logger(), "  Mode: %u", msg->mode);
-        // RCLCPP_INFO(this->get_logger(), "  Gait Type: %u", msg->gait_type);
-        // RCLCPP_INFO(this->get_logger(), "  Speed Level: %u", msg->speed_level);
-        // RCLCPP_INFO(this->get_logger(), "  Foot Raise Height: %f", msg->foot_raise_height);
-        // RCLCPP_INFO(this->get_logger(), "  Body Height: %f", msg->body_height);
-        // RCLCPP_INFO(this->get_logger(), "  Position: [%f, %f]", msg->position[0], msg->position[1]);
-        // RCLCPP_INFO(this->get_logger(), "  Euler Angles: [%f, %f, %f]", msg->euler[0], msg->euler[1], msg->euler[2]);
-        // RCLCPP_INFO(this->get_logger(), "  Velocity: [%f, %f]", msg->velocity[0], msg->velocity[1]);
-        // RCLCPP_INFO(this->get_logger(), "  Yaw Speed: %f\033[0m", msg->yaw_speed);
+        static unitree_api::msg::Request req_; // Unitree H1 ROS2 request message
         if (gait_type_ !=msg->gait_type && msg->gait_type !=0){
             sport_req.SwitchGait(req_, msg->gait_type);
             req_puber->publish(req_);
@@ -469,20 +484,10 @@ private:
         float x_vel= msg->velocity[0];
         float y_vel = msg->velocity[1];
         float yaw_vel = msg->yaw_speed;
-        go2_cmd_vel_msg.linear.x = x_vel;
-        go2_cmd_vel_msg.linear.y = y_vel;
-        go2_cmd_vel_msg.angular.z = yaw_vel;
-        cmd_vel_pub_->publish(go2_cmd_vel_msg);
-        if (gait_type_ == 3 || gait_type_ == 4){
-            if(x_vel>0){
-                x_vel=0.1;
-            }else{
-                x_vel=-0.1;
-            }
-        }
-        sport_req.Move(req_, x_vel, y_vel, yaw_vel);
-        req_puber->publish(req_);
-        
+        h1_cmd_vel_msg.linear.x = x_vel;
+        h1_cmd_vel_msg.linear.y = y_vel;
+        h1_cmd_vel_msg.angular.z = yaw_vel;
+        publishMove();
     }
 
 
@@ -535,13 +540,13 @@ private:
     rclcpp::Subscription<techshare_ros_pkg2::msg::ControllerMsg>::SharedPtr remote_controller_sub_;
     rclcpp::Client<techshare_ros_pkg2::srv::ChangeDriveMode>::SharedPtr change_drivemode_srv_client_;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr kill_all_client_;
-    rclcpp::Service<techshare_ros_pkg2::srv::SdkClient>::SharedPtr go2_sdk_service_;
+
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr dog_odom_pub; // Publishes odom to ROS
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_; // Publishes odom to ROS
 
     
     nav_msgs::msg::Odometry dog_odom;  // odom data
-    geometry_msgs::msg::Twist go2_cmd_vel_msg;  // odom data
+    geometry_msgs::msg::Twist h1_cmd_vel_msg;  // odom data
     geometry_msgs::msg::Twist zero_twist;  // odom data
 
     sensor_msgs::msg::Imu imu_msg;
@@ -552,7 +557,7 @@ private:
 
     rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr req_puber;
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
-    unitree_go::msg::IMUState imu;         // Unitree go2 IMU message
+    unitree_go::msg::IMUState imu;         // Unitree h1 IMU message
     float battery_voltage;                 // Battery voltage
     float battery_current;                 // Battery current
     bool fixed_stand;
@@ -562,7 +567,7 @@ private:
     int prev_driving_mode = 0;
     rclcpp::Time last_message_time_;
     rclcpp::TimerBase::SharedPtr timer_, delay_timer_ ,rawDataTimer; // ROS2 timer
-    unitree_api::msg::Request req; // Unitree Go2 ROS2 request message
+    unitree_api::msg::Request req; // Unitree H1 ROS2 request message
     unitree_go::msg::SportModeState rosgaitstate;
     SportClient sport_req;
     std::mutex mutex_;
@@ -584,13 +589,15 @@ private:
 
     //for ipc
     int shm_fd_;
-    SDK_CLIENT_DATA* shared_memory_;
+    CmdVelData* shared_memory_;
+
+
 };
 
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv); // Initialize rclcpp
-    rclcpp::spin(std::make_shared<GO2DDS>()); //Run ROS2 node
+    rclcpp::spin(std::make_shared<H1DDS>()); //Run ROS2 node
     rclcpp::shutdown();
     return 0;
 }

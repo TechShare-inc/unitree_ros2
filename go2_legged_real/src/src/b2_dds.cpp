@@ -132,12 +132,6 @@ private:
         getOdom();
         getImuData();
         gait_type_ = msg->gait_type;
-        RCLCPP_INFO(
-            this->get_logger(),
-            "\033[1;33mMode: %d | gait_type: %d\033[0m",
-            msg->mode,
-            msg->gait_type // Use the function to get the string representation
-        );
 
         if (msg->mode == 7)//DUMP
         {
@@ -246,13 +240,18 @@ private:
         // Check time since last message
         // std::lock_guard<std::mutex> lock(mutex_); 
         auto now = this->get_clock()->now();
-        if ((now - last_message_time_).seconds() >= 1.0) {
-            remotelyControlled = false;
-            RCLCPP_INFO(this->get_logger(), "\033[1;33mNo message received for more than 1 second.\033[0m");
-            
+        if(!remotelyControlled){
+            last_message_time_ = this->get_clock()->now();
         }
-        cmd_vel_pub_->publish(go2_cmd_vel_msg);
-        go2_cmd_vel_msg = zero_twist;
+        if ((now - last_message_time_).seconds() >= 1.0) {
+            if (remotelyControlled){
+                RCLCPP_INFO(this->get_logger(), "\033[1;33mNo message received for more than 1 second.\033[0m");
+                cmd_vel_pub_->publish(go2_cmd_vel_msg);
+                go2_cmd_vel_msg = zero_twist;
+                remotelyControlled = false;
+            }
+        }
+
     }
 
     // void send_request(int& value) {
