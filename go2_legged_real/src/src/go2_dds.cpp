@@ -77,10 +77,7 @@ public:
         kill_all_client_ = this->create_client<std_srvs::srv::Trigger>("killall");
 
         last_message_time_ = this->get_clock()->now();
-        timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(500),
-            std::bind(&GO2DDS::timerCallback, this)
-        );
+
         double pub_rate = 400.0f;
         double T = 1.0 / pub_rate * 1000.f;   
         auto time = std::chrono::duration<long, std::ratio<1, 1000>>(int(T));
@@ -187,23 +184,6 @@ private:
         delay_timer_->cancel();
     }
 
-    void timerCallback() {
-        // Check time since last message
-        // std::lock_guard<std::mutex> lock(mutex_); 
-        auto now = this->get_clock()->now();
-        if(!remotelyControlled){
-            last_message_time_ = this->get_clock()->now();
-        }
-        if ((now - last_message_time_).seconds() >= 1.0) {
-            if (remotelyControlled){
-                RCLCPP_INFO(this->get_logger(), "\033[1;33mNo message received for more than 1 second.\033[0m");
-                cmd_vel_pub_->publish(go2_cmd_vel_msg);
-                go2_cmd_vel_msg = zero_twist;
-                remotelyControlled = false;
-            }
-        }
-
-    }
 
 
 
@@ -263,10 +243,7 @@ private:
     {
         std::lock_guard<std::mutex> lock(mutex_); 
         go2_cmd_vel_msg = *msg;
-        if (msg->linear.z != 0.0 && !remotelyControlled){
-            // stop the move
-            // sport_req.StopMove(req);
-            // req_puber->publish(req);
+        if (abs(msg->linear.z) >0.1){
 
             if (msg->linear.z < 0){
                 RCLCPP_INFO(this->get_logger(), "\033[1;36m----->Stand down\033[0m");
@@ -289,6 +266,10 @@ private:
             RCLCPP_INFO(this->get_logger(), "\033[1;32m----->Moving\033[0m");
             sport_req.Move(req, msg->linear.x, msg->linear.y, msg->angular.z);
             req_puber->publish(req);
+            go2_cmd_vel_msg.linear.x = msg->linear.x;
+            go2_cmd_vel_msg.linear.y = msg->linear.y;
+            go2_cmd_vel_msg.angular.z = msg->angular.z;
+            cmd_vel_pub_->publish(go2_cmd_vel_msg);
         }
     }
     void makeFakeCovariance(sensor_msgs::msg::Imu& imu_msg_){
@@ -425,6 +406,7 @@ private:
         go2_cmd_vel_msg.linear.x = x_vel;
         go2_cmd_vel_msg.linear.y = y_vel;
         go2_cmd_vel_msg.angular.z = yaw_vel;
+        cmd_vel_pub_->publish(go2_cmd_vel_msg);
         if (gait_type_ == 3 || gait_type_ == 4){
             if(x_vel>0){
                 x_vel=0.1;
@@ -434,6 +416,7 @@ private:
         }
         sport_req.Move(req_, x_vel, y_vel, yaw_vel);
         req_puber->publish(req_);
+        
     }
 
 
