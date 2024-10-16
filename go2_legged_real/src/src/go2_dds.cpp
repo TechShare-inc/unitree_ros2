@@ -14,6 +14,8 @@
 #include "techshare_ros_pkg2/msg/controller_msg.hpp"
 #include "techshare_ros_pkg2/srv/change_drive_mode.hpp"
 #include "techshare_ros_pkg2/srv/sdk_client.hpp"
+#include <techshare_ros_pkg2/srv/zoom.hpp>
+#include <techshare_ros_pkg2/srv/pan_tilt.hpp>
 #include "sensor_msgs/msg/imu.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include <std_msgs/msg/int8.hpp>
@@ -39,8 +41,15 @@ enum KeyValue
 {
     START = 4,
     L1_A = 258,
+    L1_X = 1026,
     L2_R2 = 48,
-    L1_Y = 2050
+    L1_Y = 2050,
+    UP = 4096,
+    RIGHT = 8192,
+    LEFT = 32768,
+    DOWN = 16384,
+    R1R2 = 17,
+    L1L2 = 34
 };
 
 struct SDK_CLIENT_DATA {
@@ -125,6 +134,11 @@ public:
             "unitree_sdk_client", std::bind(&GO2DDS::handle_client, this, std::placeholders::_1, std::placeholders::_2));
 
         last_message_time_ = this->get_clock()->now();
+        zoom_level = 1.0;
+        pan_tilt_req = std::make_shared<techshare_ros_pkg2::srv::PanTilt::Request>();
+        pan_tilt_cli_ = this->create_client<techshare_ros_pkg2::srv::PanTilt>("pan_tilt");
+        zoom_cli_ = this->create_client<techshare_ros_pkg2::srv::Zoom>("zoom");
+
 
         double pub_rate = 400.0f;
         double T = 1.0 / pub_rate * 1000.f;   
@@ -156,6 +170,53 @@ private:
     }
 
 
+    void handle_ptz(int cmd){
+        switch (static_cast<KeyValue>(cmd)) {
+            case RIGHT:{ // right
+                pan_tilt_req->direction = "right";
+                pan_tilt_req->speed = 100;
+                pan_tilt_req->degrees = 5;
+                pan_tilt_cli_->async_send_request(pan_tilt_req);
+                break;
+            }
+            case LEFT:{ // left
+                pan_tilt_req->direction = "left";
+                pan_tilt_req->speed = 100;
+                pan_tilt_req->degrees = 5;
+                pan_tilt_cli_->async_send_request(pan_tilt_req);
+                break;
+            }
+            case UP:{ // up
+                pan_tilt_req->direction = "up";
+                pan_tilt_req->speed = 100;
+                pan_tilt_req->degrees = 5;
+                pan_tilt_cli_->async_send_request(pan_tilt_req);
+                break;
+            }
+            case DOWN:{ // down
+                pan_tilt_req->direction = "down";
+                pan_tilt_req->speed = 100;
+                pan_tilt_req->degrees = 5;
+                pan_tilt_cli_->async_send_request(pan_tilt_req);
+                break;
+            }
+            case R1R2:{ // zoom in
+                if (zoom_level < 30) zoom_level++;
+                zoom_req->target = zoom_level;
+                zoom_cli_->async_send_request(zoom_req);
+                break;
+            }
+            case L1L2:{ // zoom out
+                if (zoom_level > 1) zoom_level--;
+                zoom_req->target = zoom_level;
+                zoom_cli_->async_send_request(zoom_req);
+                break;
+            }
+        }
+
+    }
+
+
     void handleCommand(const std::string& client_name, const std::array<float, 10>& params) {
         strncpy(shared_memory_->client_name, client_name.c_str(), sizeof(shared_memory_->client_name) - 1);
         std::copy(params.begin(), params.end(), shared_memory_->params);
@@ -169,13 +230,6 @@ private:
             imu_pub_->publish(imu_msg);
             dog_odom_pub->publish(dog_odom);
         }
-        // if (imu_msg == nullptr) {
-        //     std::cout << "imu msg is null" << std::endl;
-        // }
-        // if (dog_odom == nullptr) {
-        //     std::cout << "odom msg is null" << std::endl;
-        // }
-
     }
 
     void lowStateCallback(const unitree_go::msg::LowState::SharedPtr msg){
@@ -202,12 +256,6 @@ private:
         getOdom();
         
         gait_type_ = msg->gait_type;
-        // RCLCPP_INFO(
-        //     this->get_logger(),
-        //     "\033[1;33mMode: %d | gait_type: %d\033[0m",
-        //     msg->mode,
-        //     msg->gait_type // Use the function to get the string representation
-        // );
 
         if (msg->mode == 7)//DUMP
         {
@@ -388,12 +436,7 @@ private:
         imu_msg.orientation.x = imu.quaternion[1];
         imu_msg.orientation.y = imu.quaternion[2];
         imu_msg.orientation.z = imu.quaternion[3];
-        // // Output statement to print the quaternion values
-        // RCLCPP_INFO(this->get_logger(), "IMU Orientation Quaternion: w = %f, x = %f, y = %f, z = %f",
-        //             imu_msg.orientation.w, 
-        //             imu_msg.orientation.x, 
-        //             imu_msg.orientation.y, 
-        //             imu_msg.orientation.z);
+
         // Angular velocity data
         imu_msg.angular_velocity.x = imu.gyroscope[0];
         imu_msg.angular_velocity.y = imu.gyroscope[1];
@@ -403,10 +446,6 @@ private:
         imu_msg.linear_acceleration.x = imu.accelerometer[0];
         imu_msg.linear_acceleration.y = imu.accelerometer[1];
         imu_msg.linear_acceleration.z = imu.accelerometer[2];
-
-        // imu_msg.linear_acceleration_covariance[0] = rosgaitstate.velocity[0];
-        // imu_msg.linear_acceleration_covariance[1] = rosgaitstate.velocity[1];
-        // imu_msg.linear_acceleration_covariance[2] = rosgaitstate.velocity[2];
 
         imu_msg_flag = true;
     }
@@ -441,16 +480,6 @@ private:
         std::lock_guard<std::mutex> lock(mutex_); 
 
         static unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
-        // RCLCPP_INFO(this->get_logger(), "\033[34mReceived GaitCmd:");
-        // RCLCPP_INFO(this->get_logger(), "  Mode: %u", msg->mode);
-        // RCLCPP_INFO(this->get_logger(), "  Gait Type: %u", msg->gait_type);
-        // RCLCPP_INFO(this->get_logger(), "  Speed Level: %u", msg->speed_level);
-        // RCLCPP_INFO(this->get_logger(), "  Foot Raise Height: %f", msg->foot_raise_height);
-        // RCLCPP_INFO(this->get_logger(), "  Body Height: %f", msg->body_height);
-        // RCLCPP_INFO(this->get_logger(), "  Position: [%f, %f]", msg->position[0], msg->position[1]);
-        // RCLCPP_INFO(this->get_logger(), "  Euler Angles: [%f, %f, %f]", msg->euler[0], msg->euler[1], msg->euler[2]);
-        // RCLCPP_INFO(this->get_logger(), "  Velocity: [%f, %f]", msg->velocity[0], msg->velocity[1]);
-        // RCLCPP_INFO(this->get_logger(), "  Yaw Speed: %f\033[0m", msg->yaw_speed);
         if (gait_type_ !=msg->gait_type && msg->gait_type !=0){
             sport_req.SwitchGait(req_, msg->gait_type);
             req_puber->publish(req_);
@@ -492,6 +521,7 @@ private:
         static bool start = true;
         static bool l1_a = false;
         static bool l1_y = false;
+        static bool l1_x = false;
         static std_msgs::msg::String ss;
         uint16_t keyValue = data->keys;
         if(keyValue == L2_R2 && !l2_r2){
@@ -507,6 +537,13 @@ private:
             RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+A(add a point) has been  pressed.\033[0m");
             ss.data = "L1A";
             key_value_pub_->publish(ss);
+        }else if (keyValue == L1_X && !l1_x){
+            //call key add point
+            l1_x = true;
+            start = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+UP(add a point) has been  pressed.\033[0m");
+            ss.data = "L1X";
+            key_value_pub_->publish(ss);
         }else if (keyValue == L1_Y && !l1_y){
             //call key add point
             l1_y = true;
@@ -519,8 +556,10 @@ private:
             l1_a = false;
             l1_y = false;
             l2_r2 = false;
+            l1_x = false;
             RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value START has been pressed.\033[0m");
-
+        }else{
+            handle_ptz(keyValue);
         }
         RCLCPP_INFO(this->get_logger(), "Wireless controller -- lx: %f; ly: %f; rx: %f; ry: %f; key value: %d",
                     data->lx, data->ly, data->rx, data->ry, data->keys);
@@ -539,16 +578,14 @@ private:
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr dog_odom_pub; // Publishes odom to ROS
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_; // Publishes odom to ROS
 
-    
+    rclcpp::Client<techshare_ros_pkg2::srv::PanTilt>::SharedPtr pan_tilt_cli_;
+    rclcpp::Client<techshare_ros_pkg2::srv::Zoom>::SharedPtr zoom_cli_;
     nav_msgs::msg::Odometry dog_odom;  // odom data
     geometry_msgs::msg::Twist go2_cmd_vel_msg;  // odom data
     geometry_msgs::msg::Twist zero_twist;  // odom data
 
     sensor_msgs::msg::Imu imu_msg;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr key_value_pub_;
-
-    // rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr driving_mode_sub_;
-
 
     rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr req_puber;
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
@@ -564,6 +601,8 @@ private:
     rclcpp::TimerBase::SharedPtr timer_, delay_timer_ ,rawDataTimer; // ROS2 timer
     unitree_api::msg::Request req; // Unitree Go2 ROS2 request message
     unitree_go::msg::SportModeState rosgaitstate;
+    std::shared_ptr<techshare_ros_pkg2::srv::PanTilt::Request> pan_tilt_req;
+    std::shared_ptr<techshare_ros_pkg2::srv::Zoom::Request> zoom_req;
     SportClient sport_req;
     std::mutex mutex_;
     //link names
@@ -581,7 +620,7 @@ private:
     double py0 = 0;  // initial y position
     double yaw0 = 0; // initial yaw angle
     std::once_flag flag;
-
+    int zoom_level;
     //for ipc
     int shm_fd_;
     SDK_CLIENT_DATA* shared_memory_;
