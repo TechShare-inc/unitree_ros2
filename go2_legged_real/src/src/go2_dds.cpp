@@ -142,6 +142,19 @@ public:
         pan_tilt_cli_ = this->create_client<techshare_ros_pkg2::srv::PanTilt>("pan_tilt");
         zoom_cli_ = this->create_client<techshare_ros_pkg2::srv::Zoom>("zoom");
 
+        //special meesag to change new ai mode to old one
+        old_api_req_.header.identity.id = 271801251;  //maybe it is okay to be random int?
+        old_api_req_.header.identity.api_id = 1049;  //this is the switcher 
+        // Set lease ID
+        old_api_req_.header.lease.id = 0;
+        // Set policy values
+        old_api_req_.header.policy.priority = 0;
+        old_api_req_.header.policy.noreply = false;
+        // Set parameter as a JSON string
+        old_api_req_.parameter = "{\"data\":true}";  //if data is false then it becomes new ai mode
+ 
+        // Set binary as an empty array
+        old_api_req_.binary.clear();
 
         double pub_rate = 400.0f;
         double T = 1.0 / pub_rate * 1000.f;   
@@ -157,6 +170,9 @@ public:
             lightControl = true;
             light_level = 10;
         }
+
+
+
     };
 
     ~GO2DDS(){
@@ -418,6 +434,10 @@ private:
                 sport_req.BalanceStand(req);
                 req_puber->publish(req);
             }
+            else if (driving_mode == 9){
+                req_puber->publish(old_api_req_);
+                return;
+            }
             RCLCPP_INFO(this->get_logger(), "\033[1;32m----->Moving\033[0m");
             sport_req.Move(req, msg->linear.x, msg->linear.y, msg->angular.z);
             req_puber->publish(req);
@@ -535,6 +555,9 @@ private:
             sport_req.BalanceStand(req_);
             req_puber->publish(req_);
             return;
+        } else if (driving_mode == 9){
+            req_puber->publish(old_api_req_);
+            return;
         }
         float x_vel= msg->velocity[0];
         float y_vel = msg->velocity[1];
@@ -635,6 +658,7 @@ private:
     rclcpp::Time last_message_time_;
     rclcpp::TimerBase::SharedPtr timer_, delay_timer_ ,rawDataTimer, ignore_cmd_timer_; // ROS2 timer
     unitree_api::msg::Request req; // Unitree Go2 ROS2 request message
+    unitree_api::msg::Request old_api_req_;
     unitree_go::msg::SportModeState rosgaitstate;
     std::shared_ptr<techshare_ros_pkg2::srv::PanTilt::Request> pan_tilt_req;
     std::shared_ptr<techshare_ros_pkg2::srv::Zoom::Request> zoom_req;
