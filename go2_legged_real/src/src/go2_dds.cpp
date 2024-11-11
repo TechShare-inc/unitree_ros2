@@ -28,6 +28,9 @@
 #include <semaphore.h>
 #include <cstring>
 #include <errno.h>
+#include <iostream>
+#include <ctime>
+#include <iomanip>
 #define INFO_IMU 0        // Set 1 to info IMU states
 #define INFO_MOTOR 0      // Set 1 to info motor states
 #define INFO_FOOT_FORCE 0 // Set 1 to info foot force states
@@ -150,7 +153,10 @@ public:
         if (change_drivemode_srv_client_->wait_for_service(std::chrono::seconds(5))){
             drivemode_srv_client_flag = true;
         }
-
+        if(isTimeInRange()){
+            lightControl = true;
+            light_level = 10;
+        }
     };
 
     ~GO2DDS(){
@@ -168,6 +174,31 @@ private:
         handleCommand(request->client_name, request->params);
         response->res = 1;
     }
+
+    bool isTimeInRange() {
+        // Get current time in UTC
+        auto now = std::chrono::system_clock::now();
+        std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+
+        // Convert to local time
+        std::tm *local_time = std::gmtime(&now_c);
+
+        // Convert to JST (UTC + 9 hours)
+        local_time->tm_hour += 9;
+        if (local_time->tm_hour >= 24) {
+            local_time->tm_hour -= 24;
+            local_time->tm_mday += 1;
+        }
+
+        // Check if the current time is between 15:00 - 0:00 or 0:00 - 6:00
+        int hour = local_time->tm_hour;
+        if ((hour >= 15 && hour < 24) || (hour >= 0 && hour < 6)) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
 
 
     void handle_ptz(int cmd){
@@ -256,6 +287,25 @@ private:
         getOdom();
         
         gait_type_ = msg->gait_type;
+        if(lightControl){
+            static float params[10];
+            if (msg->mode != 7 && !lightOn){
+                lightOn = true;
+                params[0] = light_level;
+                std::array<float, 10> params_array;
+                std::copy(std::begin(params), std::end(params), params_array.begin());
+                
+                handleCommand("vui_client", params_array);
+            }else if (msg->mode == 7 && lightOn){
+                lightOn = false;
+                params[0] = 0;
+                std::array<float, 10> params_array;
+                std::copy(std::begin(params), std::end(params), params_array.begin());
+                handleCommand("vui_client", params_array);
+            }
+        }
+
+
 
         if (msg->mode == 7)//DUMP
         {
@@ -622,6 +672,9 @@ private:
     std::once_flag flag;
     int zoom_level;
     //for ipc
+    int light_level =0;
+    bool lightOn = false;
+    bool lightControl = false;
     int shm_fd_;
     SDK_CLIENT_DATA* shared_memory_;
 };
