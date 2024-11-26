@@ -142,6 +142,19 @@ public:
         pan_tilt_cli_ = this->create_client<techshare_ros_pkg2::srv::PanTilt>("pan_tilt");
         zoom_cli_ = this->create_client<techshare_ros_pkg2::srv::Zoom>("zoom");
 
+        //special meesag to change new ai mode to old one
+        old_api_req_.header.identity.id = 271801251;  //maybe it is okay to be random int?
+        old_api_req_.header.identity.api_id = 1049;  //this is the switcher 
+        // Set lease ID
+        old_api_req_.header.lease.id = 0;
+        // Set policy values
+        old_api_req_.header.policy.priority = 0;
+        old_api_req_.header.policy.noreply = false;
+        // Set parameter as a JSON string
+        old_api_req_.parameter = "{\"data\":true}";  //if data is false then it becomes new ai mode
+ 
+        // Set binary as an empty array
+        old_api_req_.binary.clear();
 
         double pub_rate = 400.0f;
         double T = 1.0 / pub_rate * 1000.f;   
@@ -157,6 +170,9 @@ public:
             lightControl = true;
             light_level = 10;
         }
+
+
+
     };
 
     ~GO2DDS(){
@@ -271,22 +287,11 @@ private:
     void sportmodeStateCallback(const unitree_go::msg::SportModeState::SharedPtr msg)
     {
 
-        /*
-        class TerrainType(Enum):
-
-            #posture
-            BALANCED = 1
-            NORMAL = 3
-            LAYDOWN = 5
-            FIXEDSTAND = 6
-            DUMP = 7
-
-        the above enum represents a drivining mode index in HALNA SYSTEM
-        */
         rosgaitstate = *msg;
         getOdom();
         
         gait_type_ = msg->gait_type;
+        driving_mode = msg->mode;
         if(lightControl){
             static float params[10];
             if (msg->mode != 7 && !lightOn){
@@ -310,32 +315,8 @@ private:
         if (msg->mode == 7)//DUMP
         {
             stand = false;
-            driving_mode = 7;
-        }else if (msg->mode == 6) // FIXED STAND
-        {
-            driving_mode = 6;  
-        }else if (msg->mode == 1) //BALANCED STAND
-        {
-            driving_mode = 1;
-        }else if (msg->mode == 3) //NORMAL
-        {
-            driving_mode = 3;
-        }
-        if ((msg->mode == 1 || msg->mode == 3) && msg->gait_type == 3){ //climb up
-            driving_mode = 103;
-        }else if ((msg->mode == 1 || msg->mode == 3) && msg->gait_type == 4){ //climb down
-            driving_mode = 104;
-        }
-        if (driving_mode != prev_driving_mode){
-            RCLCPP_INFO(this->get_logger(), "\033[1;33m----->Changing the mode from %d to %d\033[0m", prev_driving_mode, driving_mode);
-            {
-                if(drivemode_srv_client_flag){
-                    auto message_request = std::make_shared<techshare_ros_pkg2::srv::ChangeDriveMode::Request>();
-                    message_request->mode = driving_mode;
-                    change_drivemode_srv_client_->async_send_request(message_request);
-                }
-                prev_driving_mode = driving_mode;
-            }
+        }else if (msg->mode == 9 || msg->mode == 6){
+            stand = true;
         }
 
     }
@@ -347,7 +328,11 @@ private:
         req_puber->publish(req);
         delay_timer_->cancel();
     }
-
+    void resetIgnoreCmd()
+    {
+        ignore_cmd_flag = false;
+        ignore_cmd_timer_->cancel();
+    }
 
 
 
@@ -362,6 +347,22 @@ private:
         where 0 is idle, 1 is trot, 2 is trot running, 
         3 is forward climbing mode, and 4 is reverse climbing mode
         */
+        /*
+        class TerrainType(Enum):
+
+            #posture
+            BALANCED = 1
+            NORMAL = 3 
+            LAYDOWN = 5
+            FIXEDSTAND = 6
+            DUMP = 7
+            ------ for new version
+            new ai mode = 9
+            old ai mode = 18
+
+        the above enum represents a drivining mode index in HALNA SYSTEM
+        */
+        if (ignore_cmd_flag) return;
 
         bool continuousGaitFlag= false;
         if (msg->start && msg->right){
@@ -372,20 +373,26 @@ private:
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->reverse climbing mode\033[0m");
             sport_req.SwitchGait(req_, 4);
             continuousGaitFlag = true;
-        }else if (msg->l2 && msg->a && (driving_mode != 5 && driving_mode !=7 ) && stand){
+        }else if (msg->l2 && msg->a && (driving_mode != 5 && driving_mode !=7 )){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->StandDown mode\033[0m");
             sport_req.StandDown(req_);
-        }else if (msg->l2 && msg->a){
+            ignore_cmd_flag = true;
+            ignore_cmd_timer_ = this->create_wall_timer(
+                    std::chrono::seconds(2), 
+                    std::bind(&GO2DDS::resetIgnoreCmd, this));
+        }else if (msg->l2 && msg->a && (driving_mode == 5 || driving_mode ==7 )){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->StandUp mode\033[0m");
             sport_req.StandUp(req_);
+            ignore_cmd_flag = true;
+            ignore_cmd_timer_ = this->create_wall_timer(
+                    std::chrono::seconds(2), 
+                    std::bind(&GO2DDS::resetIgnoreCmd, this));
         }else if (msg->l2 && msg->b && driving_mode == 7){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->Damp mode\033[0m");
             sport_req.Damp(req_);
-            stand = false;
         } else if (msg->start){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->BalanceStand mode\033[0m");
             sport_req.SwitchGait(req_, 1);
-            stand = true;
         }else{
             action = false;
         }
@@ -426,6 +433,10 @@ private:
             if (driving_mode == 6){
                 sport_req.BalanceStand(req);
                 req_puber->publish(req);
+            }
+            else if (driving_mode == 9){
+                req_puber->publish(old_api_req_);
+                return;
             }
             RCLCPP_INFO(this->get_logger(), "\033[1;32m----->Moving\033[0m");
             sport_req.Move(req, msg->linear.x, msg->linear.y, msg->angular.z);
@@ -544,6 +555,9 @@ private:
             sport_req.BalanceStand(req_);
             req_puber->publish(req_);
             return;
+        } else if (driving_mode == 9){
+            req_puber->publish(old_api_req_);
+            return;
         }
         float x_vel= msg->velocity[0];
         float y_vel = msg->velocity[1];
@@ -552,13 +566,6 @@ private:
         go2_cmd_vel_msg.linear.y = y_vel;
         go2_cmd_vel_msg.angular.z = yaw_vel;
         cmd_vel_pub_->publish(go2_cmd_vel_msg);
-        if (gait_type_ == 3 || gait_type_ == 4){
-            if(x_vel>0){
-                x_vel=0.1;
-            }else{
-                x_vel=-0.1;
-            }
-        }
         sport_req.Move(req_, x_vel, y_vel, yaw_vel);
         req_puber->publish(req_);
         
@@ -643,13 +650,15 @@ private:
     float battery_voltage;                 // Battery voltage
     float battery_current;                 // Battery current
     bool fixed_stand;
+    bool ignore_cmd_flag = false;
     bool remotelyControlled, stand;
     bool imu_msg_flag, dog_odom_flag, drivemode_srv_client_flag;
     int driving_mode = 0;
     int prev_driving_mode = 0;
     rclcpp::Time last_message_time_;
-    rclcpp::TimerBase::SharedPtr timer_, delay_timer_ ,rawDataTimer; // ROS2 timer
+    rclcpp::TimerBase::SharedPtr timer_, delay_timer_ ,rawDataTimer, ignore_cmd_timer_; // ROS2 timer
     unitree_api::msg::Request req; // Unitree Go2 ROS2 request message
+    unitree_api::msg::Request old_api_req_;
     unitree_go::msg::SportModeState rosgaitstate;
     std::shared_ptr<techshare_ros_pkg2::srv::PanTilt::Request> pan_tilt_req;
     std::shared_ptr<techshare_ros_pkg2::srv::Zoom::Request> zoom_req;
