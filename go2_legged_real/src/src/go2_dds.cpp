@@ -47,6 +47,8 @@ enum KeyValue
     L1_X = 1026,
     L2_R2 = 48,
     L1_Y = 2050,
+    L1_UP = 4098,
+    L1_B = 514,
     UP = 4096,
     RIGHT = 8192,
     LEFT = 32768,
@@ -579,6 +581,8 @@ private:
         static bool l1_a = false;
         static bool l1_y = false;
         static bool l1_x = false;
+        static bool l1_up = false;
+        static bool l1_b = false;
         static std_msgs::msg::String ss;
         uint16_t keyValue = data->keys;
         if(keyValue == L2_R2 && !l2_r2){
@@ -608,12 +612,28 @@ private:
             RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+Y(save_graph) has been  pressed.\033[0m");
             ss.data = "L1Y";
             key_value_pub_->publish(ss);
+        }else if (keyValue == L1_UP && !l1_up){
+            //call key add point
+            l1_up = true;
+            start = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+UP(add point with minimum range) has been  pressed.\033[0m");
+            ss.data = "L1UP";
+            key_value_pub_->publish(ss);
+        }else if (keyValue == L1_B && !l1_b){
+            //call key add point
+            l1_b = true;
+            start = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+B(remove all the points) has been  pressed.\033[0m");
+            ss.data = "L1B";
+            key_value_pub_->publish(ss);
         }else if (keyValue == START){
             start = true;
             l1_a = false;
             l1_y = false;
             l2_r2 = false;
             l1_x = false;
+            l1_up = false;
+            l1_b = false;
             RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value START has been pressed.\033[0m");
         }else{
             handle_ptz(keyValue);

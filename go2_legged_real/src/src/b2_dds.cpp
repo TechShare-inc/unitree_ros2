@@ -28,6 +28,9 @@
 #include <semaphore.h>
 #include <cstring>
 #include <errno.h>
+#include <iostream>
+#include <ctime>
+#include <iomanip>
 #define INFO_IMU 0        // Set 1 to info IMU states
 #define INFO_MOTOR 0      // Set 1 to info motor states
 #define INFO_FOOT_FORCE 0 // Set 1 to info foot force states
@@ -44,6 +47,8 @@ enum KeyValue
     L1_X = 1026,
     L2_R2 = 48,
     L1_Y = 2050,
+    L1_UP = 4098,
+    L1_B = 514,
     UP = 4096,
     RIGHT = 8192,
     LEFT = 32768,
@@ -139,17 +144,36 @@ public:
         pan_tilt_cli_ = this->create_client<techshare_ros_pkg2::srv::PanTilt>("pan_tilt");
         zoom_cli_ = this->create_client<techshare_ros_pkg2::srv::Zoom>("zoom");
 
+        //special meesag to change new ai mode to old one
+        old_api_req_.header.identity.id = 271801251;  //maybe it is okay to be random int?
+        old_api_req_.header.identity.api_id = 1049;  //this is the switcher 
+        // Set lease ID
+        old_api_req_.header.lease.id = 0;
+        // Set policy values
+        old_api_req_.header.policy.priority = 0;
+        old_api_req_.header.policy.noreply = false;
+        // Set parameter as a JSON string
+        old_api_req_.parameter = "{\"data\":true}";  //if data is false then it becomes new ai mode
+ 
+        // Set binary as an empty array
+        old_api_req_.binary.clear();
 
         double pub_rate = 400.0f;
         double T = 1.0 / pub_rate * 1000.f;   
         auto time = std::chrono::duration<long, std::ratio<1, 1000>>(int(T));
-        rawDataTimer = this->create_wall_timer(
-            time,
-            std::bind(&B2DDS::rawDataPubCallback, this)
-        );
+        // rawDataTimer = this->create_wall_timer(
+        //     time,
+        //     std::bind(&B2DDS::rawDataPubCallback, this)
+        // );
         if (change_drivemode_srv_client_->wait_for_service(std::chrono::seconds(5))){
             drivemode_srv_client_flag = true;
         }
+        if(isTimeInRange()){
+            lightControl = true;
+            light_level = 10;
+        }
+
+
 
     };
 
@@ -168,6 +192,31 @@ private:
         handleCommand(request->client_name, request->params);
         response->res = 1;
     }
+
+    bool isTimeInRange() {
+        // Get current time in UTC
+        auto now = std::chrono::system_clock::now();
+        std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+
+        // Convert to local time
+        std::tm *local_time = std::gmtime(&now_c);
+
+        // Convert to JST (UTC + 9 hours)
+        local_time->tm_hour += 9;
+        if (local_time->tm_hour >= 24) {
+            local_time->tm_hour -= 24;
+            local_time->tm_mday += 1;
+        }
+
+        // Check if the current time is between 15:00 - 0:00 or 0:00 - 6:00
+        int hour = local_time->tm_hour;
+        if ((hour >= 15 && hour < 24) || (hour >= 0 && hour < 6)) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
 
 
     void handle_ptz(int cmd){
@@ -223,69 +272,53 @@ private:
         sem_post(&shared_memory_->semaphore);
     }
 
-    void rawDataPubCallback(){
-        // Publish the IMU message
-        if (imu_msg_flag && dog_odom_flag){
-            // makeFakeCovariance(imu_msg); // this is called only once
-            imu_pub_->publish(imu_msg);
-            dog_odom_pub->publish(dog_odom);
-        }
-    }
+    // void rawDataPubCallback(){
+    //     // Publish the IMU message
+    //     if (imu_msg_flag && dog_odom_flag){
+    //         // makeFakeCovariance(imu_msg); // this is called only once
+    //         imu_pub_->publish(imu_msg);
+    //         dog_odom_pub->publish(dog_odom);
+    //     }
+    // }
 
     void lowStateCallback(const unitree_go::msg::LowState::SharedPtr msg){
         imu = msg->imu_state;   
-        getImuData();
+        // getImuData();
     }
 
     void sportmodeStateCallback(const unitree_go::msg::SportModeState::SharedPtr msg)
     {
 
-        /*
-        class TerrainType(Enum):
-
-            #posture
-            BALANCED = 1
-            NORMAL = 3
-            LAYDOWN = 5
-            FIXEDSTAND = 6
-            DUMP = 7
-
-        the above enum represents a drivining mode index in HALNA SYSTEM
-        */
         rosgaitstate = *msg;
-        getOdom();
+        // getOdom();
         
         gait_type_ = msg->gait_type;
+        driving_mode = msg->mode;
+        if(lightControl){
+            static float params[10];
+            if (msg->mode != 7 && !lightOn){
+                lightOn = true;
+                params[0] = light_level;
+                std::array<float, 10> params_array;
+                std::copy(std::begin(params), std::end(params), params_array.begin());
+                
+                handleCommand("vui_client", params_array);
+            }else if (msg->mode == 7 && lightOn){
+                lightOn = false;
+                params[0] = 0;
+                std::array<float, 10> params_array;
+                std::copy(std::begin(params), std::end(params), params_array.begin());
+                handleCommand("vui_client", params_array);
+            }
+        }
+
+
 
         if (msg->mode == 7)//DUMP
         {
             stand = false;
-            driving_mode = 7;
-        }else if (msg->mode == 6) // FIXED STAND
-        {
-            driving_mode = 6;  
-        }else if (msg->mode == 1) //BALANCED STAND
-        {
-            driving_mode = 1;
-        }else if (msg->mode == 3) //NORMAL
-        {
-            driving_mode = 3;
-        }
-        if ((msg->mode == 1 || msg->mode == 3) && msg->gait_type == 3){ //climb up
-            driving_mode = 103;
-        }else if ((msg->mode == 1 || msg->mode == 3) && msg->gait_type == 4){ //climb down
-            driving_mode = 104;
-        }
-        if (driving_mode != prev_driving_mode){
-            RCLCPP_INFO(this->get_logger(), "\033[1;33m----->Changing the mode from %d to %d\033[0m", prev_driving_mode, driving_mode);
-            {
-                if(drivemode_srv_client_flag){
-                    auto message_request = std::make_shared<techshare_ros_pkg2::srv::ChangeDriveMode::Request>();
-                    message_request->mode = driving_mode;
-                    change_drivemode_srv_client_->async_send_request(message_request);
-                }
-                prev_driving_mode = driving_mode;
-            }
+        }else if (msg->mode == 9 || msg->mode == 6){
+            stand = true;
         }
 
     }
@@ -297,7 +330,11 @@ private:
         req_puber->publish(req);
         delay_timer_->cancel();
     }
-
+    void resetIgnoreCmd()
+    {
+        ignore_cmd_flag = false;
+        ignore_cmd_timer_->cancel();
+    }
 
 
 
@@ -312,40 +349,62 @@ private:
         where 0 is idle, 1 is trot, 2 is trot running, 
         3 is forward climbing mode, and 4 is reverse climbing mode
         */
+        /*
+        class TerrainType(Enum):
+
+            #posture
+            BALANCED = 1
+            NORMAL = 3 
+            LAYDOWN = 5
+            FIXEDSTAND = 6
+            DUMP = 7
+            ------ for new version
+            new ai mode = 9
+            old ai mode = 18
+
+        the above enum represents a drivining mode index in HALNA SYSTEM
+        */
+        if (ignore_cmd_flag) return;
 
         bool continuousGaitFlag= false;
         if (msg->start && msg->right){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->forward climbing mode\033[0m");
-            sport_req.SwitchGait(req_, 3);
+            // sport_req.SwitchGait(req_, 3);
             continuousGaitFlag = true;
         }else if (msg->start && msg->left){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->reverse climbing mode\033[0m");
-            sport_req.SwitchGait(req_, 4);
+            // sport_req.SwitchGait(req_, 4);
             continuousGaitFlag = true;
-        }else if (msg->l2 && msg->a && (driving_mode != 5 && driving_mode !=7 ) && stand){
+        }else if (msg->l2 && msg->a && (driving_mode != 5 && driving_mode !=7 )){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->StandDown mode\033[0m");
             sport_req.StandDown(req_);
-        }else if (msg->l2 && msg->a){
+            ignore_cmd_flag = true;
+            ignore_cmd_timer_ = this->create_wall_timer(
+                    std::chrono::seconds(2), 
+                    std::bind(&B2DDS::resetIgnoreCmd, this));
+        }else if (msg->l2 && msg->a && (driving_mode == 5 || driving_mode ==7 )){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->StandUp mode\033[0m");
             sport_req.StandUp(req_);
+            ignore_cmd_flag = true;
+            ignore_cmd_timer_ = this->create_wall_timer(
+                    std::chrono::seconds(2), 
+                    std::bind(&B2DDS::resetIgnoreCmd, this));
         }else if (msg->l2 && msg->b && driving_mode == 7){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->Damp mode\033[0m");
             sport_req.Damp(req_);
-            stand = false;
         } else if (msg->start){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->BalanceStand mode\033[0m");
-            sport_req.SwitchGait(req_, 1);
-            stand = true;
+            // sport_req.SwitchGait(req_, 1);
         }else{
             action = false;
         }
-        if(action){
-            req_puber->publish(req_);
-            if (continuousGaitFlag){
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                sport_req.ContinuousGait(req_, continuousGaitFlag);
-            }
-        }
+        // if(action){
+        //     req_puber->publish(req_);
+        //     if (continuousGaitFlag){
+        //         std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        //         sport_req.ContinuousGait(req_, continuousGaitFlag);
+        //     }
+        // }
 
 
 
@@ -376,6 +435,10 @@ private:
             if (driving_mode == 6){
                 sport_req.BalanceStand(req);
                 req_puber->publish(req);
+            }
+            else if (driving_mode == 9){
+                req_puber->publish(old_api_req_);
+                return;
             }
             RCLCPP_INFO(this->get_logger(), "\033[1;32m----->Moving\033[0m");
             sport_req.Move(req, msg->linear.x, msg->linear.y, msg->angular.z);
@@ -480,19 +543,16 @@ private:
         std::lock_guard<std::mutex> lock(mutex_); 
 
         static unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
-        if (gait_type_ !=msg->gait_type && msg->gait_type !=0){
-            sport_req.SwitchGait(req_, msg->gait_type);
-            req_puber->publish(req_);
+        if (driving_mode == 6){
+            sport_req.BalanceStand(req);
+            req_puber->publish(req);
         }
         if (std::abs(msg->velocity[0]) < 1e-9 &&
             std::abs(msg->velocity[1]) < 1e-9 &&
             std::abs(msg->yaw_speed) < 1e-9)
         {
-            return;
-        }
-        if (driving_mode == 6){
-            sport_req.BalanceStand(req_);
-            req_puber->publish(req_);
+            // sport_req.SwitchGait(req_, 0);
+            // req_puber->publish(req_);
             return;
         }
         float x_vel= msg->velocity[0];
@@ -502,13 +562,6 @@ private:
         b2_cmd_vel_msg.linear.y = y_vel;
         b2_cmd_vel_msg.angular.z = yaw_vel;
         cmd_vel_pub_->publish(b2_cmd_vel_msg);
-        if (gait_type_ == 3 || gait_type_ == 4){
-            if(x_vel>0){
-                x_vel=0.1;
-            }else{
-                x_vel=-0.1;
-            }
-        }
         // sport_req.Move(req_, x_vel, y_vel, yaw_vel);
         // req_puber->publish(req_);
         
@@ -522,6 +575,8 @@ private:
         static bool l1_a = false;
         static bool l1_y = false;
         static bool l1_x = false;
+        static bool l1_up = false;
+        static bool l1_b = false;
         static std_msgs::msg::String ss;
         uint16_t keyValue = data->keys;
         if(keyValue == L2_R2 && !l2_r2){
@@ -551,12 +606,28 @@ private:
             RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+Y(save_graph) has been  pressed.\033[0m");
             ss.data = "L1Y";
             key_value_pub_->publish(ss);
+        }else if (keyValue == L1_UP && !l1_up){
+            //call key add point
+            l1_up = true;
+            start = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+UP(add point with minimum range) has been  pressed.\033[0m");
+            ss.data = "L1UP";
+            key_value_pub_->publish(ss);
+        }else if (keyValue == L1_B && !l1_b){
+            //call key add point
+            l1_b = true;
+            start = false;
+            RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value L1+B(remove all the points) has been  pressed.\033[0m");
+            ss.data = "L1B";
+            key_value_pub_->publish(ss);
         }else if (keyValue == START){
             start = true;
             l1_a = false;
             l1_y = false;
             l2_r2 = false;
             l1_x = false;
+            l1_up = false;
+            l1_b = false;
             RCLCPP_INFO(this->get_logger(), "\033[1;32mKey value START has been pressed.\033[0m");
         }else{
             handle_ptz(keyValue);
@@ -593,13 +664,15 @@ private:
     float battery_voltage;                 // Battery voltage
     float battery_current;                 // Battery current
     bool fixed_stand;
+    bool ignore_cmd_flag = false;
     bool remotelyControlled, stand;
     bool imu_msg_flag, dog_odom_flag, drivemode_srv_client_flag;
     int driving_mode = 0;
     int prev_driving_mode = 0;
     rclcpp::Time last_message_time_;
-    rclcpp::TimerBase::SharedPtr timer_, delay_timer_ ,rawDataTimer; // ROS2 timer
+    rclcpp::TimerBase::SharedPtr timer_, delay_timer_ ,rawDataTimer, ignore_cmd_timer_; // ROS2 timer
     unitree_api::msg::Request req; // Unitree Go2 ROS2 request message
+    unitree_api::msg::Request old_api_req_;
     unitree_go::msg::SportModeState rosgaitstate;
     std::shared_ptr<techshare_ros_pkg2::srv::PanTilt::Request> pan_tilt_req;
     std::shared_ptr<techshare_ros_pkg2::srv::Zoom::Request> zoom_req;
@@ -622,6 +695,9 @@ private:
     std::once_flag flag;
     int zoom_level;
     //for ipc
+    int light_level =0;
+    bool lightOn = false;
+    bool lightControl = false;
     int shm_fd_;
     SDK_CLIENT_DATA* shared_memory_;
 };
