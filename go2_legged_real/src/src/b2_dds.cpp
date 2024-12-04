@@ -398,13 +398,13 @@ private:
         }else{
             action = false;
         }
-        // if(action){
-        //     req_puber->publish(req_);
-        //     if (continuousGaitFlag){
-        //         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        //         sport_req.ContinuousGait(req_, continuousGaitFlag);
-        //     }
-        // }
+        if(action){
+            req_puber->publish(req_);
+            if (continuousGaitFlag){
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                sport_req.ContinuousGait(req_, continuousGaitFlag);
+            }
+        }
 
 
 
