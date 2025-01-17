@@ -44,11 +44,11 @@ using std::placeholders::_1;
 
 
 enum Mode{
+    NORMAL_MODE = 1,
+    GENERAL_STAIR_MODE = 2,
+    WALL_CLIMB_MODE = 3,
+    HIGH_SPEED_MODE = 5,
     AI_MODE = 9,
-    GENERAL_STAIR_MODE = 11,
-    WALL_CLIMB_MODE = 12,
-    HIGH_SPEED_MODE = 15,
-    PLANE_MODE = 12,
 };
 
 
@@ -144,13 +144,40 @@ public:
         } else {
             // Shared memory exists, just map it
             cmd_vel_shared_memory_ = static_cast<CmdVelData*>(mmap(0, sizeof(CmdVelData), PROT_WRITE, MAP_SHARED, cmd_vel_shm_fd_, 0));
-            if (shared_memory_ == MAP_FAILED) {
+            if (cmd_vel_shared_memory_ == MAP_FAILED) {
                 RCLCPP_ERROR(this->get_logger(), "Failed to map shared memory");
                 return;
             }
             RCLCPP_INFO(this->get_logger(), "Shared memory mapped.");
         }
 
+        high_state_shm_fd_ = shm_open("/high_state_shm", O_RDWR, 0666);
+        if (high_state_shm_fd_ == -1) {
+            // Shared memory doesn't exist yet, create it
+            RCLCPP_INFO(this->get_logger(), "Creating shared memory...");
+            high_state_shm_fd_ = shm_open("/high_state_shm", O_CREAT | O_RDWR, 0666);
+            ftruncate(high_state_shm_fd_, sizeof(SDK_CLIENT_DATA));
+
+            // Map the shared memory into the process
+            high_state_shared_memory_ = static_cast<SDK_CLIENT_DATA*>(mmap(0, sizeof(SDK_CLIENT_DATA), PROT_WRITE, MAP_SHARED, high_state_shm_fd_, 0));
+
+            if (high_state_shared_memory_ == MAP_FAILED) {
+                RCLCPP_ERROR(this->get_logger(), "Failed to map shared memory");
+                return;
+            }
+
+            // Initialize the semaphore
+            sem_init(&high_state_shared_memory_->semaphore, 1, 0); // Shared between processes
+            RCLCPP_INFO(this->get_logger(), "Shared memory and semaphore initialized.");
+        } else {
+            // Shared memory exists, just map it
+            high_state_shared_memory_ = static_cast<SDK_CLIENT_DATA*>(mmap(0, sizeof(SDK_CLIENT_DATA), PROT_WRITE, MAP_SHARED, high_state_shm_fd_, 0));
+            if (high_state_shared_memory_ == MAP_FAILED) {
+                RCLCPP_ERROR(this->get_logger(), "Failed to map shared memory");
+                return;
+            }
+            RCLCPP_INFO(this->get_logger(), "Shared memory mapped.");
+        }
 
 
         this->declare_parameter("imuFrame", "imu_link");
@@ -174,17 +201,18 @@ public:
         rosgaitcmd_sub_ = this->create_subscription<unitree_interfaces::msg::GaitCmd>(
             "rosgaitcmd", 10, std::bind(&GO2WDDS::rosgaitcmdCallback, this, std::placeholders::_1));
 
-        sportmode_state_sub_ = this->create_subscription<unitree_go::msg::SportModeState>(
-            "/sportmodestate", 1, std::bind(&GO2WDDS::sportmodeStateCallback, this, _1));
+        // sportmode_state_sub_ = this->create_subscription<unitree_go::msg::SportModeState>(
+        //     "/sportmodestate", 1, std::bind(&GO2WDDS::sportmodeStateCallback, this, _1));
         low_state_sub_ = this->create_subscription<unitree_go::msg::LowState>(
             "/lowstate", 1, std::bind(&GO2WDDS::lowStateCallback, this, _1));
 
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
         req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
+        temporal_sportmodestate_pub = this->create_publisher<unitree_go::msg::SportModeState>("/sportmodestate", 10);
         imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
         dog_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>(robotOdometry,1);
         key_value_pub_ = this->create_publisher<std_msgs::msg::String>("remote_toweb_cmd",10);
-        cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("go2W_cmd_vel",10);
+        cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("go2w_cmd_vel",10);
         change_drivemode_srv_client_ = this->create_client<techshare_ros_pkg2::srv::ChangeDriveMode>("change_driving_mode");
         kill_all_client_ = this->create_client<std_srvs::srv::Trigger>("killall");
 
@@ -226,9 +254,11 @@ public:
     ~GO2WDDS(){
         // Clean up
         munmap(shared_memory_, sizeof(SDK_CLIENT_DATA));
+        munmap(high_state_shared_memory_, sizeof(SDK_CLIENT_DATA));
         munmap(cmd_vel_shared_memory_, sizeof(CmdVelData));
         close(shm_fd_);
         close(cmd_vel_shm_fd_);
+        close(high_state_shm_fd_);
         RCLCPP_INFO(this->get_logger(), "\033[1;33mClean up the memory\033[0m");
     }
 
@@ -309,10 +339,13 @@ private:
             req_local.parameter = "{\"data\":1}";  //if data is false then it becomes new ai mode
         }else if (mode == WALL_CLIMB_MODE){
             req_local.header.identity.api_id = 1011;  //this is the switcher 
-            req_local.parameter = "{\"data\":0}";  //if data is false then it becomes new ai mode
+            req_local.parameter = "{\"data\":2}";  //if data is false then it becomes new ai mode
         }else if (mode == HIGH_SPEED_MODE){
             req_local.header.identity.api_id = 1015;  //this is the switcher 
             req_local.parameter = "{\"data\":1}";  //if data is false then it becomes new ai mode
+        }else if (mode == NORMAL_MODE){
+            req_local.header.identity.api_id = 1011;  //this is the switcher 
+            req_local.parameter = "{\"data\":0}";  //if data is false then it becomes new ai mode
         }
 
     }
@@ -417,14 +450,20 @@ private:
     void checkSharedMemory()
     {
         // Attempt to lock the semaphore
-        if (sem_trywait(&shared_memory_->semaphore) == 0)
+        if (sem_trywait(&high_state_shared_memory_->semaphore) == 0)
         {
             // We have the lock; now read
+            unitree_go::msg::SportModeState temp_msg;
             if (!dog_odom_flag) dog_odom_flag=true; 
-            std::string cl_name(shared_memory_->client_name);
-            driving_mode = static_cast<int>(shared_memory_->params[0]);
-            gait_type_ = static_cast<int>(shared_memory_->params[1]);
-            float progress = shared_memory_->params[2];
+            std::string cl_name(high_state_shared_memory_->client_name);
+            driving_mode = static_cast<int>(high_state_shared_memory_->params[0]);
+            gait_type_ = static_cast<int>(high_state_shared_memory_->params[1]);
+            temp_msg.gait_type = gait_type_;
+            temp_msg.mode = driving_mode;
+            temp_msg.progress = static_cast<int>(high_state_shared_memory_->params[2]);
+            temporal_sportmodestate_pub->publish(temp_msg);
+            
+            float progress = high_state_shared_memory_->params[2];
             if (driving_mode == 7)//DUMP
             {
                 stand = false;
@@ -439,7 +478,7 @@ private:
             // );
 
             // Release the lock for others
-            sem_post(&shared_memory_->semaphore);
+            sem_post(&high_state_shared_memory_->semaphore);
         }
         else
         {
@@ -448,23 +487,23 @@ private:
             RCLCPP_DEBUG(this->get_logger(), "No new data or semaphore not posted yet.");
         }
 
-        if(lightControl){
-            static float params[10];
-            if (driving_mode != 7 && !lightOn){
-                lightOn = true;
-                params[0] = light_level;
-                std::array<float, 10> params_array;
-                std::copy(std::begin(params), std::end(params), params_array.begin());
+        // if(lightControl){
+        //     static float params[10];
+        //     if (driving_mode != 7 && !lightOn){
+        //         lightOn = true;
+        //         params[0] = light_level;
+        //         std::array<float, 10> params_array;
+        //         std::copy(std::begin(params), std::end(params), params_array.begin());
                 
-                handleCommand("vui_client", params_array);
-            }else if (driving_mode == 7 && lightOn){
-                lightOn = false;
-                params[0] = 0;
-                std::array<float, 10> params_array;
-                std::copy(std::begin(params), std::end(params), params_array.begin());
-                handleCommand("vui_client", params_array);
-            }
-        }
+        //         handleCommand("vui_client", params_array);
+        //     }else if (driving_mode == 7 && lightOn){
+        //         lightOn = false;
+        //         params[0] = 0;
+        //         std::array<float, 10> params_array;
+        //         std::copy(std::begin(params), std::end(params), params_array.begin());
+        //         handleCommand("vui_client", params_array);
+        //     }
+        // }
 
 
     }
@@ -577,6 +616,12 @@ private:
             sport_req.SwitchGait(req_, 4);
             continuousGaitFlag = true;
         }else if (msg->l2 && msg->a && (driving_mode != 5 && driving_mode !=7 )){
+            changeMode(req_, NORMAL_MODE);
+            req_puber->publish(req_);
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            sport_req.StandUp(req_);
+            req_puber->publish(req_);
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->StandDown mode\033[0m");
             sport_req.StandDown(req_);
             ignore_cmd_flag = true;
@@ -621,6 +666,12 @@ private:
 
             if (msg->linear.z < 0){
                 RCLCPP_INFO(this->get_logger(), "\033[1;36m----->Stand down\033[0m");
+                changeMode(req, NORMAL_MODE);
+                req_puber->publish(req);
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                sport_req.StandUp(req);
+                req_puber->publish(req);
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
                 sport_req.StandDown(req);
                 // Set up the timer for 2 seconds delay
                 delay_timer_ = this->create_wall_timer(
@@ -640,8 +691,8 @@ private:
             // go2W_cmd_vel_msg.linear.x = msg->linear.x;
             // go2W_cmd_vel_msg.linear.y = msg->linear.y;
             // go2W_cmd_vel_msg.angular.z = msg->angular.z;
-            publishMove();
             cmd_vel_pub_->publish(go2W_cmd_vel_msg);
+            publishMove();
         }
     }
     void makeFakeCovariance(sensor_msgs::msg::Imu& imu_msg_){
@@ -738,15 +789,13 @@ private:
 
     bool checkMode(){
         if (driving_mode == 6){
-            sport_req.BalanceStand(req);
+            // sport_req.BalanceStand(req);
+            changeMode(req, NORMAL_MODE);
             req_puber->publish(req);
+            RCLCPP_INFO(this->get_logger(), "\033[1;34m----->Changing to the balance\033[0m");
             return true;
         } else if (driving_mode == 9){
             changeMode(req, AI_MODE);
-            req_puber->publish(req);
-            return true;
-        }else if (gait_type_ == 0){
-            changeMode(req, GENERAL_STAIR_MODE);
             req_puber->publish(req);
             return true;
         }
@@ -756,19 +805,21 @@ private:
 
     void rosgaitcmdCallback(const unitree_interfaces::msg::GaitCmd::SharedPtr msg){
         std::lock_guard<std::mutex> lock(mutex_); 
-
+        if (checkMode()) return;
         static unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
-        // if (gait_type_ !=msg->gait_type && msg->gait_type !=0){
-        //     sport_req.SwitchGait(req_, msg->gait_type);
-        //     req_puber->publish(req_);
-        // }
+        if ((gait_type_+1) != msg->gait_type && gait_type_ < 4){
+            changeMode(req_, msg->gait_type);
+            RCLCPP_INFO(this->get_logger(), "\033[1;34m----->Changing the gait type to %d\033[0m", msg->gait_type);
+            req_puber->publish(req_);
+            return;
+        }
         if (std::abs(msg->velocity[0]) < 1e-9 &&
             std::abs(msg->velocity[1]) < 1e-9 &&
             std::abs(msg->yaw_speed) < 1e-9)
         {
             return;
         }
-        if (checkMode()) return;
+        // if (checkMode()) return;
         float x_vel= msg->velocity[0];
         float y_vel = msg->velocity[1];
         float yaw_vel = msg->yaw_speed;
@@ -873,6 +924,7 @@ private:
 
     rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr req_puber;
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
+    rclcpp::Publisher<unitree_go::msg::SportModeState>::SharedPtr temporal_sportmodestate_pub;
     unitree_go::msg::IMUState imu;         // Unitree go2W IMU message
     float battery_voltage;                 // Battery voltage
     float battery_current;                 // Battery current
@@ -911,8 +963,9 @@ private:
     int light_level =0;
     bool lightOn = false;
     bool lightControl = false;
-    int shm_fd_, cmd_vel_shm_fd_;
+    int shm_fd_, cmd_vel_shm_fd_, high_state_shm_fd_;
     SDK_CLIENT_DATA* shared_memory_;
+    SDK_CLIENT_DATA* high_state_shared_memory_;
     CmdVelData* cmd_vel_shared_memory_;
 };
 
