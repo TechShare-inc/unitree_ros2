@@ -294,6 +294,9 @@ private:
         
         gait_type_ = msg->gait_type;
         driving_mode = msg->mode;
+        if (driving_mode == 9){
+            req_puber->publish(old_api_req_);
+        }
         if(lightControl){
             static float params[10];
             if (msg->mode != 7 && !lightOn){
@@ -543,10 +546,10 @@ private:
         std::lock_guard<std::mutex> lock(mutex_); 
 
         static unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
-        if (gait_type_ !=msg->gait_type && msg->gait_type !=0){
-            sport_req.SwitchGait(req_, msg->gait_type);
-            req_puber->publish(req_);
-        }
+        // if (gait_type_ !=msg->gait_type && msg->gait_type !=0){
+        //     sport_req.SwitchGait(req_, msg->gait_type);
+        //     req_puber->publish(req_);
+        // }
         if (std::abs(msg->velocity[0]) < 1e-9 &&
             std::abs(msg->velocity[1]) < 1e-9 &&
             std::abs(msg->yaw_speed) < 1e-9)
