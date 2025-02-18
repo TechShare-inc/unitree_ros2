@@ -76,10 +76,11 @@ struct SDK_CLIENT_DATA {
 };
 
 struct CmdVelData {
+    sem_t semaphore;
+    double command;  // 1: StandUp, 2: StandDown, 3: Move
     double linear_x;
     double linear_y;
     double angular_z;
-    sem_t semaphore;
 };
 
 class B2WDDS : public rclcpp::Node
@@ -207,7 +208,7 @@ public:
             "/lowstate", 1, std::bind(&B2WDDS::lowStateCallback, this, _1));
 
         // the req_puber is set to subscribe "/api/sport/request" topic with dt
-        req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
+        // req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
         temporal_sportmodestate_pub = this->create_publisher<unitree_go::msg::SportModeState>("/sportmodestate", 10);
         imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", 10);
         dog_odom_pub = this->create_publisher<nav_msgs::msg::Odometry>(robotOdometry,1);
@@ -438,11 +439,32 @@ private:
         sem_post(&shared_memory_->semaphore);
     }
 
-    void publishMove(){
+    void publishStandUp(){
+        cmd_vel_shared_memory_->command = 1.0;  
         // Write cmd_vel data to shared memory
-        cmd_vel_shared_memory_->linear_x = b2W_cmd_vel_msg.linear.x;
-        cmd_vel_shared_memory_->linear_y = b2W_cmd_vel_msg.linear.y;
-        cmd_vel_shared_memory_->angular_z = b2W_cmd_vel_msg.angular.z;
+        cmd_vel_shared_memory_->linear_x = 0.0;
+        cmd_vel_shared_memory_->linear_y = 0.0;
+        cmd_vel_shared_memory_->angular_z = 0.0;
+        // Post the semaphore to signal the other process
+        sem_post(&cmd_vel_shared_memory_->semaphore);
+    }
+
+    void publishStandDown(){
+        cmd_vel_shared_memory_->command = 2.0;  
+        // Write cmd_vel data to shared memory
+        cmd_vel_shared_memory_->linear_x = 0.0;
+        cmd_vel_shared_memory_->linear_y = 0.0;
+        cmd_vel_shared_memory_->angular_z = 0.0;
+        // Post the semaphore to signal the other process
+        sem_post(&cmd_vel_shared_memory_->semaphore);
+    }
+
+    void publishMove(double x, double y, double z){
+        cmd_vel_shared_memory_->command = 3.0;  
+        // Write cmd_vel data to shared memory
+        cmd_vel_shared_memory_->linear_x = x;
+        cmd_vel_shared_memory_->linear_y = y;
+        cmd_vel_shared_memory_->angular_z = z;
         // Post the semaphore to signal the other process
         sem_post(&cmd_vel_shared_memory_->semaphore);
     }
@@ -566,8 +588,8 @@ private:
     void dampFunction()
     {
         RCLCPP_INFO(this->get_logger(), "\033[1;33m----->Damp\033[0m");
-        sport_req.Damp(req);
-        req_puber->publish(req);
+        // sport_req.Damp(req);
+        // req_puber->publish(req);
         delay_timer_->cancel();
     }
     void resetIgnoreCmd()
@@ -609,46 +631,46 @@ private:
         bool continuousGaitFlag= false;
         if (msg->start && msg->right){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->forward climbing mode\033[0m");
-            sport_req.SwitchGait(req_, 3);
+            // sport_req.SwitchGait(req_, 3);
             continuousGaitFlag = true;
         }else if (msg->start && msg->left){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->reverse climbing mode\033[0m");
-            sport_req.SwitchGait(req_, 4);
+            // sport_req.SwitchGait(req_, 4);
             continuousGaitFlag = true;
         }else if (msg->l2 && msg->a && (driving_mode != 5 && driving_mode !=7 )){
             // changeMode(req_, NORMAL_MODE);
-            req_puber->publish(req_);
+            // req_puber->publish(req_);
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            sport_req.StandUp(req_);
-            req_puber->publish(req_);
+            // sport_req.StandUp(req_);
+            // req_puber->publish(req_);
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->StandDown mode\033[0m");
-            sport_req.StandDown(req_);
+            // sport_req.StandDown(req_);
             ignore_cmd_flag = true;
             ignore_cmd_timer_ = this->create_wall_timer(
                     std::chrono::seconds(2), 
                     std::bind(&B2WDDS::resetIgnoreCmd, this));
         }else if (msg->l2 && msg->a && (driving_mode == 5 || driving_mode ==7 )){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->StandUp mode\033[0m");
-            sport_req.StandUp(req_);
+            // sport_req.StandUp(req_);
             ignore_cmd_flag = true;
             ignore_cmd_timer_ = this->create_wall_timer(
                     std::chrono::seconds(2), 
                     std::bind(&B2WDDS::resetIgnoreCmd, this));
         }else if (msg->l2 && msg->b && driving_mode == 7){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->Damp mode\033[0m");
-            sport_req.Damp(req_);
+            // sport_req.Damp(req_);
         } else if (msg->start){
             RCLCPP_INFO(this->get_logger(), "\033[1;33m----->BalanceStand mode\033[0m");
-            sport_req.SwitchGait(req_, 1);
+            // sport_req.SwitchGait(req_, 1);
         }else{
             action = false;
         }
         if(action){
-            req_puber->publish(req_);
+            // req_puber->publish(req_);
             if (continuousGaitFlag){
                 std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                sport_req.ContinuousGait(req_, continuousGaitFlag);
+                // sport_req.ContinuousGait(req_, continuousGaitFlag);
             }
         }
 
@@ -666,33 +688,26 @@ private:
 
             if (msg->linear.z < 0){
                 RCLCPP_INFO(this->get_logger(), "\033[1;36m----->Stand down\033[0m");
-                // changeMode(req, NORMAL_MODE);
-                req_puber->publish(req);
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                sport_req.StandUp(req);
-                req_puber->publish(req);
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                sport_req.StandDown(req);
+                publishStandDown();
                 // Set up the timer for 2 seconds delay
                 delay_timer_ = this->create_wall_timer(
                     std::chrono::seconds(2), 
                     std::bind(&B2WDDS::dampFunction, this));
             }else {
                 RCLCPP_INFO(this->get_logger(), "\033[1;34m----->Stand up\033[0m");
-                sport_req.StandUp(req);
+                publishStandUp();
             }
-            req_puber->publish(req);
         }else{
             stand = true;
             if (checkMode()) return;
 
 
             RCLCPP_INFO(this->get_logger(), "\033[1;32m----->Moving\033[0m");
-            // b2W_cmd_vel_msg.linear.x = msg->linear.x;
-            // b2W_cmd_vel_msg.linear.y = msg->linear.y;
-            // b2W_cmd_vel_msg.angular.z = msg->angular.z;
+            b2W_cmd_vel_msg.linear.x = msg->linear.x;
+            b2W_cmd_vel_msg.linear.y = msg->linear.y;
+            b2W_cmd_vel_msg.angular.z = msg->angular.z;
             cmd_vel_pub_->publish(b2W_cmd_vel_msg);
-            publishMove();
+            publishMove(msg->linear.x, msg->linear.y, msg->angular.z);
         }
     }
     void makeFakeCovariance(sensor_msgs::msg::Imu& imu_msg_){
