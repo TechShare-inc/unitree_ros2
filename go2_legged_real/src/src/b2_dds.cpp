@@ -294,6 +294,10 @@ private:
         
         gait_type_ = msg->gait_type;
         driving_mode = msg->mode;
+        if (driving_mode == 9){
+            req_puber->publish(old_api_req_);
+        }
+
         if(lightControl){
             static float params[10];
             if (msg->mode != 7 && !lightOn){
