@@ -201,6 +201,15 @@ protected:
     rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr req_pub_;
     rclcpp::Publisher<std_msgs::msg::Int8>::SharedPtr navigation_state_pub_;
 
+
+    /* ---- in DogDDSBase (protected section) ---------------------------- */
+    rclcpp::Subscription<Twist>::SharedPtr              cmd_vel_sub_;
+    rclcpp::Subscription<CtrlMsg>::SharedPtr            controller_sub_;
+    rclcpp::Subscription<unitree_go::msg::WirelessController>::SharedPtr wl_ctrl_sub_;
+    rclcpp::Subscription<LowStateMsg>::SharedPtr        low_state_sub_;
+    rclcpp::Subscription<SportState>::SharedPtr         sport_state_sub_;
+    rclcpp::Subscription<GaitCmdMsg>::SharedPtr         gait_sub_;
+
     /* ----- sport client & reusable requests ------------------------------- */
     SportClient               sport_client_;
     unitree_api::msg::Request old_api_req_{};   // switcher (common)
@@ -282,26 +291,26 @@ private:
         navigation_state_pub_ = this->create_publisher<std_msgs::msg::Int8>("navigation_state", 1);
 
         /* ––––– subscriptions ––––– */
-        this->create_subscription<Twist>("msg_cmd_vel", 1,
+        cmd_vel_sub_ = this->create_subscription<Twist>("msg_cmd_vel", 1,
             [this](Twist::SharedPtr m){ onCmdVel(*m); });
 
-        this->create_subscription<CtrlMsg>("controller_status", 1,
+        controller_sub_ = this->create_subscription<CtrlMsg>("controller_status", 1,
             [this](CtrlMsg::SharedPtr m){ onRemoteController(*m); });
 
-        this->create_subscription<unitree_go::msg::WirelessController>(
+        wl_ctrl_sub_ = this->create_subscription<unitree_go::msg::WirelessController>(
             "/wirelesscontroller", 10,
             [this](unitree_go::msg::WirelessController::SharedPtr m)
             {
                 this->handleWireless(*m);
             });
 
-        this->create_subscription<LowStateMsg>("/lowstate", 1,
+        low_state_sub_ =  this->create_subscription<LowStateMsg>("/lowstate", 1,
             [this](LowStateMsg::SharedPtr m){ this->lowStateCB(*m); });
 
-        this->create_subscription<SportState>("/sportmodestate", 1,
+        sport_state_sub_ =  this->create_subscription<SportState>("/sportmodestate", 1,
             [this](SportState::SharedPtr m){ this->sportStateCB(*m); });
 
-        this->create_subscription<GaitCmdMsg>("rosgaitcmd", 10,
+        gait_sub_ = this->create_subscription<GaitCmdMsg>("rosgaitcmd", 10,
             [this](GaitCmdMsg::SharedPtr m){ this->onGaitCmd(*m); });
     }
 

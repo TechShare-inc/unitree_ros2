@@ -1,7 +1,7 @@
-// b2_dds.cpp
+// go2_dds.cpp
 // -----------------------------------------------------------------------------
-//  Concrete implementation of the B2 node, re‑using all shared logic from
-//  `dog_dds_common.hpp` and providing only the B2‑specific behaviour for
+//  Concrete implementation of the GO2 node, re‑using all shared logic from
+//  `dog_dds_common.hpp` and providing only the GO2‑specific behaviour for
 //  remote‑controller keys and cmd_vel handling.
 // -----------------------------------------------------------------------------
 #include "dog_dds_common.hpp"
@@ -16,14 +16,14 @@
 #include <semaphore.h>  // sem_t, sem_init, sem_post
 #include <unistd.h>     // close
 
-class GO2DDS : public DogDDSBase<DogModel::B2>
+class GO2DDS : public DogDDSBase<DogModel::GO2>
 {
 public:
-    GO2DDS() : DogDDSBase<DogModel::B2>() {}
+    GO2DDS() : DogDDSBase<DogModel::GO2>() {}
 
 protected:
     /* ------------------------------------------------------------------ */
-    /*  Controller (game‑pad) callback – B2 flavour                       */
+    /*  Controller (game‑pad) callback – GO2 flavour                       */
     /* ------------------------------------------------------------------ */
     void onRemoteController(const CtrlMsg &msg) override
     {
@@ -36,13 +36,13 @@ protected:
 
         // if (msg.start && msg.right)
         // {
-        //     RCLCPP_INFO(get_logger(), "→ forward climbing (ignored for B2)");
+        //     RCLCPP_INFO(get_logger(), "→ forward climbing (ignored for GO2)");
         //     continuous_gait = true;         // kept for symmetry, but not sent
         //     do_publish      = false;
         // }
         // else if (msg.start && msg.left)
         // {
-        //     RCLCPP_INFO(get_logger(), "→ reverse climbing (ignored for B2)");
+        //     RCLCPP_INFO(get_logger(), "→ reverse climbing (ignored for GO2)");
         //     continuous_gait = true;
         //     do_publish      = false;
         // }
@@ -129,7 +129,7 @@ protected:
                               msg.linear.x, msg.linear.y, msg.angular.z);
         sport_client_.Move(req, msg.linear.x, msg.linear.y, msg.angular.z);
         req_pub_->publish(req);
-        cmd_vel_pub_->publish(msg);            // echo out on b2_cmd_vel
+        cmd_vel_pub_->publish(msg);            // echo out on GO2_cmd_vel
     }
 
 
