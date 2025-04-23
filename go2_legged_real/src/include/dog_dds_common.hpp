@@ -32,6 +32,7 @@
 #include "sensor_msgs/msg/imu.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "std_msgs/msg/int8.hpp"
 
 /* =======================  UNITREE + TECHSHARE MSGS ======================== */
 #include "unitree_go/msg/sport_mode_state.hpp"
@@ -412,7 +413,7 @@ private:
     /* ============  WIRELESS CONTROLLER KEY‑MAPPING (shared)  ============== */
     void handleWireless(const unitree_go::msg::WirelessController &wc)
     {
-        static bool l2r2=false,l1a=false,l1x=false,l1y=false,l1up=false,l1b=false;
+        static bool l2r2=false,l1a=false,l1x=false,l1y=false,l1up=false,l1b=false,l1start=false;
         std_msgs::msg::String ss;
         switch(static_cast<KeyValue>(wc.keys))
         {
@@ -432,9 +433,9 @@ private:
                 if(!l1b){ l1b=true; ss.data="L1B"; key_pub_->publish(ss);} break;
             case L1_START:
                 if(!l1start){ l1start=true; 
-                    save_map_cli_>async_send_request(std::make_shared<TriggerSrv::Request>()); 
+                    save_map_cli_->async_send_request(std::make_shared<TriggerSrv::Request>()); 
                     std_msgs::msg::Int8 navigation_state_msg;
-                    navigation_state_msg.data = KEY_ACTION::SAVE_MAP;
+                    navigation_state_msg.data = static_cast<int>(KEY_ACTION::SAVE_MAP);
                     navigation_state_pub_->publish(navigation_state_msg);
                 }
                 break;
