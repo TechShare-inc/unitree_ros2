@@ -156,6 +156,7 @@ public:
 protected:
     /* ----- pure virtual hooks the concrete node must override ------------- */
     virtual void onRemoteController(const CtrlMsg&) = 0;
+    virtual void onSportState(const SportState&) = 0;
     virtual void onCmdVel(const Twist&)             = 0;
     virtual void onGaitCmd(const GaitCmdMsg &)      = 0;
     virtual void onTick500Hz()             {}             // optional high-rate work
@@ -193,6 +194,28 @@ protected:
         return (tm.tm_hour >= 15 || tm.tm_hour < 6);
     }
 
+
+    void fillOdomMsg()
+    {
+        odom_msg_.header.stamp       = now();
+        odom_msg_.header.frame_id    = odom_frame_;
+        odom_msg_.child_frame_id     = base_frame_;
+        odom_msg_.pose.pose.position.x = sport_state_.position[0];
+        odom_msg_.pose.pose.position.y = sport_state_.position[1];
+        odom_msg_.pose.pose.position.z = sport_state_.position[2];
+        odom_msg_.pose.pose.orientation.w = sport_state_.imu_state.quaternion[0];
+        odom_msg_.pose.pose.orientation.x = sport_state_.imu_state.quaternion[1];
+        odom_msg_.pose.pose.orientation.y = sport_state_.imu_state.quaternion[2];
+        odom_msg_.pose.pose.orientation.z = sport_state_.imu_state.quaternion[3];
+        odom_msg_.twist.twist.linear.x    = sport_state_.velocity[0];
+        odom_msg_.twist.twist.linear.y    = sport_state_.velocity[1];
+        odom_msg_.twist.twist.linear.z    = sport_state_.velocity[2];
+        odom_msg_.twist.twist.angular.x   = sport_state_.imu_state.gyroscope[0];
+        odom_msg_.twist.twist.angular.y   = sport_state_.imu_state.gyroscope[1];
+        odom_msg_.twist.twist.angular.z   = sport_state_.imu_state.gyroscope[2];
+        odom_ready_ = true;
+    }
+
     /* ----- exposed publishers (some nodes push custom twists) ------------- */
     rclcpp::Publisher<Twist>::SharedPtr      cmd_vel_pub_;
     rclcpp::Publisher<OdomMsg>::SharedPtr    odom_pub_;
@@ -212,7 +235,8 @@ protected:
 
     /* ----- sport client & reusable requests ------------------------------- */
     SportClient               sport_client_;
-    unitree_api::msg::Request old_api_req_{};   // switcher (common)
+    unitree_api::msg::Request old_gait_req_{};   // switcher (common)
+    unitree_api::msg::Request new_gait_req_{};   // switcher (common)
 
     /* ----- state used by shared callbacks --------------------------------- */
     ImuMsg            imu_msg_{};
@@ -308,7 +332,7 @@ private:
             [this](LowStateMsg::SharedPtr m){ this->lowStateCB(*m); });
 
         sport_state_sub_ =  this->create_subscription<SportState>("/sportmodestate", 1,
-            [this](SportState::SharedPtr m){ this->sportStateCB(*m); });
+            [this](SportState::SharedPtr m){ onSportState(*m); });
 
         gait_sub_ = this->create_subscription<GaitCmdMsg>("rosgaitcmd", 10,
             [this](GaitCmdMsg::SharedPtr m){ this->onGaitCmd(*m); });
@@ -356,12 +380,22 @@ private:
 
     void buildStaticRequests()
     {
-        old_api_req_.header.identity.id      = 271801251;  // arbitrary
-        old_api_req_.header.identity.api_id  = 1049;       // switcher
-        old_api_req_.header.lease.id         = 0;
-        old_api_req_.header.policy.priority  = 0;
-        old_api_req_.header.policy.noreply   = false;
-        old_api_req_.parameter               = "{\"data\":true}"; // true → old‑AI
+        old_gait_req_.header.identity.id      = 271801251;  // arbitrary
+        old_gait_req_.header.identity.api_id  = 1049;       // switcher
+        old_gait_req_.header.lease.id         = 0;
+        old_gait_req_.header.policy.priority  = 0;
+        old_gait_req_.header.policy.noreply   = false;
+        old_gait_req_.parameter               = "{\"data\":true}"; // true → old‑AI
+
+        new_gait_req_.header.identity.id      = 271801251;  // arbitrary
+        new_gait_req_.header.identity.api_id  = 1049;       // switcher
+        new_gait_req_.header.lease.id         = 0;
+        new_gait_req_.header.policy.priority  = 0;
+        new_gait_req_.header.policy.noreply   = false;
+        new_gait_req_.parameter               = "{\"data\":false}"; // true → old‑AI
+
+
+
     }
 
     /* =======================  INTERNAL CALLBACKS ========================== */
@@ -388,35 +422,7 @@ private:
         imu_ready_ = true;
     }
 
-    void sportStateCB(const SportState &msg)
-    {
-        sport_state_  = msg;
-        driving_mode_ = msg.mode;
-        // publish old‑API switch if needed
-        if(driving_mode_ == 9) req_pub_->publish(old_api_req_);
-        fillOdomMsg();
-    }
 
-    void fillOdomMsg()
-    {
-        odom_msg_.header.stamp       = now();
-        odom_msg_.header.frame_id    = odom_frame_;
-        odom_msg_.child_frame_id     = base_frame_;
-        odom_msg_.pose.pose.position.x = sport_state_.position[0];
-        odom_msg_.pose.pose.position.y = sport_state_.position[1];
-        odom_msg_.pose.pose.position.z = sport_state_.position[2];
-        odom_msg_.pose.pose.orientation.w = sport_state_.imu_state.quaternion[0];
-        odom_msg_.pose.pose.orientation.x = sport_state_.imu_state.quaternion[1];
-        odom_msg_.pose.pose.orientation.y = sport_state_.imu_state.quaternion[2];
-        odom_msg_.pose.pose.orientation.z = sport_state_.imu_state.quaternion[3];
-        odom_msg_.twist.twist.linear.x    = sport_state_.velocity[0];
-        odom_msg_.twist.twist.linear.y    = sport_state_.velocity[1];
-        odom_msg_.twist.twist.linear.z    = sport_state_.velocity[2];
-        odom_msg_.twist.twist.angular.x   = sport_state_.imu_state.gyroscope[0];
-        odom_msg_.twist.twist.angular.y   = sport_state_.imu_state.gyroscope[1];
-        odom_msg_.twist.twist.angular.z   = sport_state_.imu_state.gyroscope[2];
-        odom_ready_ = true;
-    }
 
 
     /* ============  WIRELESS CONTROLLER KEY‑MAPPING (shared)  ============== */

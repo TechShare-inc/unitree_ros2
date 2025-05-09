@@ -25,6 +25,17 @@ protected:
     /* ------------------------------------------------------------------ */
     /*  Controller (game‑pad) callback – GO2 flavour                       */
     /* ------------------------------------------------------------------ */
+
+
+    void onSportState(const SportState &msg)
+    {
+        sport_state_  = msg;
+        driving_mode_ = msg.mode;
+        // publish old‑API switch if needed
+        if(driving_mode_ == 9) req_pub_->publish(old_gait_req_);
+        fillOdomMsg();
+    }
+
     void onRemoteController(const CtrlMsg &msg) override
     {
         std::scoped_lock lk(mutex_);
@@ -121,7 +132,7 @@ protected:
         }
         else if (driving_mode_ == 9)           // switch to old‑AI if needed
         {
-            req_pub_->publish(old_api_req_);
+            req_pub_->publish(old_gait_req_);
             return;
         }
 
@@ -153,7 +164,7 @@ protected:
             req_pub_->publish(req_);
             return;
         } else if (driving_mode_ == 9){
-            req_pub_->publish(old_api_req_);
+            req_pub_->publish(old_gait_req_);
             return;
         }
 

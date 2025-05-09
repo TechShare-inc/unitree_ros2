@@ -25,6 +25,16 @@ protected:
     /* ------------------------------------------------------------------ */
     /*  Controller (game‑pad) callback – B2 flavour                       */
     /* ------------------------------------------------------------------ */
+
+    void onSportState(const SportState &msg)
+    {
+        sport_state_  = msg;
+        driving_mode_ = msg.mode;
+        // publish old‑API switch if needed
+        // if(driving_mode_ == 9) req_pub_->publish(old_gait_req_);
+        fillOdomMsg();
+    }
+
     void onRemoteController(const CtrlMsg &msg) override
     {
         std::scoped_lock lk(mutex_);
@@ -119,11 +129,11 @@ protected:
             sport_client_.BalanceStand(req);   // ensure balanced first
             req_pub_->publish(req);
         }
-        else if (driving_mode_ == 9)           // switch to old‑AI if needed
-        {
-            req_pub_->publish(old_api_req_);
-            return;
-        }
+        // else if (driving_mode_ == 9)           // switch to old‑AI if needed
+        // {
+        //     req_pub_->publish(old_gait_req_);
+        //     return;
+        // }
 
         RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000, "Moving … x:%f y:%f z:%f",
                               msg.linear.x, msg.linear.y, msg.angular.z);
@@ -142,14 +152,25 @@ protected:
             sport_client_.BalanceStand(req_);
             req_pub_->publish(req_);
         }
+
+
+        if (msg.gait_type == 2  && driving_mode_ == 18)
+        {
+            req_pub_->publish(new_gait_req_);
+            return;
+        }else if (msg.gait_type != 2 && driving_mode_ == 9)
+        {
+            req_pub_->publish(old_gait_req_);
+            return;
+        }
+
         if (std::abs(msg.velocity[0]) < 1e-9 &&
             std::abs(msg.velocity[1]) < 1e-9 &&
             std::abs(msg.yaw_speed) < 1e-9)
         {
-            // sport_req.SwitchGait(req_, 0);
-            // req_puber->publish(req_);
             return;
         }
+
         float x_vel= msg.velocity[0];
         float y_vel = msg.velocity[1];
         float yaw_vel = msg.yaw_speed;

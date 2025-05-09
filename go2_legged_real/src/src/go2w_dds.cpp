@@ -35,6 +35,15 @@ public:
 private:
     /* ======== overrides of the three hooks we now have ============ */
 
+    void onSportState(const SportState &msg)
+    {
+        sport_state_  = msg;
+        driving_mode_ = msg.mode;
+        // publish old‑API switch if needed
+        if(driving_mode_ == 9) req_pub_->publish(old_gait_req_);
+        fillOdomMsg();
+    }
+
     // 1)  game-pad
     void onRemoteController(const CtrlMsg &msg) override
     {
