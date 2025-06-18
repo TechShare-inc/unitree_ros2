@@ -154,7 +154,7 @@ protected:
         }
 
 
-        if (msg.gait_type == 2  && driving_mode_ == 18)
+        if (msg.gait_type == 2  && driving_mode_ != 9)
         {
             req_pub_->publish(new_gait_req_);
             return;
