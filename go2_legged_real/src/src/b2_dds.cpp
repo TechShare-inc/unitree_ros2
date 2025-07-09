@@ -65,7 +65,8 @@ protected:
         else if (msg.l2 && msg.a && (driving_mode_==5 || driving_mode_==7))
         {
             RCLCPP_INFO(get_logger(), "→ StandUp");
-            sport_client_.StandUp(req);
+            // sport_client_.StandUp(req);
+            sport_client_.BalanceStand(req);
             startIgnoreTimer();
         }
         else if (msg.l2 && msg.b && driving_mode_==7)
@@ -117,7 +118,7 @@ protected:
             else
             {
                 RCLCPP_INFO(get_logger(), "StandUp");
-                sport_client_.StandUp(req);
+                sport_client_.BalanceStand(req);
                 req_pub_->publish(req);
                 return;
             }
