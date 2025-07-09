@@ -65,7 +65,6 @@ protected:
         else if (msg.l2 && msg.a && (driving_mode_==5 || driving_mode_==7))
         {
             RCLCPP_INFO(get_logger(), "→ StandUp");
-            // sport_client_.StandUp(req);
             sport_client_.BalanceStand(req);
             startIgnoreTimer();
         }
@@ -111,7 +110,7 @@ protected:
                 sport_client_.StandDown(req);
                 req_pub_->publish(req);
                 // damp after 2 s
-                delay_timer_ = this->create_wall_timer(std::chrono::seconds(2),
+                delay_timer_ = this->create_wall_timer(std::chrono::seconds(4),
                     [this]() { unitree_api::msg::Request r; sport_client_.Damp(r); req_pub_->publish(r); delay_timer_->cancel(); });
                 return;
             }
