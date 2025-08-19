@@ -46,6 +46,7 @@
 #include "techshare_ros_pkg2/srv/sdk_client.hpp"
 #include "unitree_interfaces/msg/gait_cmd.hpp"   
 #include "std_srvs/srv/trigger.hpp"
+#include "std_srvs/srv/empty.hpp"
 
 #include "common/ros2_sport_client.h"   // Unitree helper
 
@@ -78,20 +79,38 @@ template<> struct DogTraits<DogModel::GO2W>
 /* ============================  KEY CODES  ================================= */
 enum KeyValue : uint16_t
 {
+    R1 = 1,
+    L1 = 2,
     START  = 4,
-    L1_START = 6,
-    L1_A   = 258,
-    L1_X   = 1026,
-    L2_R2  = 48,
-    L1_Y   = 2050,
-    L1_UP  = 4098,
-    L1_B   = 514,
+    SELECT = 8,
+    R2 = 16,
+    L2 = 32,
+    F1 = 64,
+    F3 = 128,
+    A = 256,
+    B = 512,
+    X = 1024,
+    Y = 2048,
     UP     = 4096,
     RIGHT  = 8192,
     LEFT   = 32768,
     DOWN   = 16384,
-    R1R2   = 17,
-    L1L2   = 34
+
+    // combos
+    L1_A = LEFT + A,
+    L1_B = LEFT + B,
+    L1_X = LEFT + X,
+    L1_Y = LEFT + Y,
+    R1_R2 = R1 + R2,
+    L1_UP = L1 + UP,
+    L1_L2 = L1 + L2,
+    L2_R2 = L2 + R2,
+    L1_START = L1 + START,
+    L2_R2_START = L2 + R2 + START,
+    R1_R2_F1 = R1 + R2 + F1,
+    L2_R2_F3 = L2 + R2 + F3,
+    L2_R2_F1_START = L2 + R2 + F1 + START
+
 };
 enum class KEY_ACTION : uint16_t
 {
@@ -129,6 +148,7 @@ class DogDDSBase : public rclcpp::Node
         /* === services === */
         using PanTiltSrv  = techshare_ros_pkg2::srv::PanTilt;
         using ZoomSrv     = techshare_ros_pkg2::srv::Zoom;
+        using EmptySrv       = std_srvs::srv::Empty;
         using TriggerSrv  = std_srvs::srv::Trigger;
         using SDKSrv = techshare_ros_pkg2::srv::SdkClient;
 
@@ -160,7 +180,8 @@ protected:
     virtual void onCmdVel(const Twist&)             = 0;
     virtual void onGaitCmd(const GaitCmdMsg &)      = 0;
     virtual void onTick500Hz()             {}             // optional high-rate work
-
+    std::chrono::steady_clock::time_point last_ptz_time_{};
+    std::chrono::steady_clock::time_point last_zoom_time_{};
     /* ----- helpers for derived classes ------------------------------------ */
 
     void postIPC(const std::string &name, const std::array<float,10>& p)
@@ -178,8 +199,14 @@ protected:
             case LEFT:  ptz("left");            break;
             case UP:    ptz("up");              break;
             case DOWN:  ptz("down");            break;
-            case R1R2:  zoom(+1);                 break;
-            case L1L2:  zoom(-1);                 break;
+            case R1_R2_F1:  // reset PTZ
+                if (centering_ptz_cli_->wait_for_service(std::chrono::seconds(1)))
+                {
+                    centering_ptz_cli_->async_send_request(std::make_shared<EmptySrv::Request>());
+                }
+                break;
+            case R1_R2:  zoom(+1);                 break;
+            case L1_L2:  zoom(-1);                 break;
             default: /* ignore */ break;
         }
     }
@@ -265,6 +292,7 @@ private:
 
     // clients
     rclcpp::Client<PanTiltSrv>::SharedPtr pan_tilt_cli_;
+    rclcpp::Client<EmptySrv>::SharedPtr centering_ptz_cli_;
     rclcpp::Client<ZoomSrv>::SharedPtr    zoom_cli_;
     rclcpp::Client<TriggerSrv>::SharedPtr killall_cli_;
     rclcpp::Client<TriggerSrv>::SharedPtr save_map_cli_;
@@ -310,7 +338,7 @@ private:
         cmd_vel_pub_ = this->create_publisher<Twist>(std::string(Traits::cmd_vel_topic), 10);
         imu_pub_     = this->create_publisher<ImuMsg>("imu/data", 10);
         odom_pub_    = this->create_publisher<OdomMsg>("dog_odom", 1);
-        key_pub_     = this->create_publisher<std_msgs::msg::String>("remote_toweb_cmd",10);
+        key_pub_     = this->create_publisher<std_msgs::msg::String>("graph_key",10);
         req_pub_     = this->create_publisher<unitree_api::msg::Request>("/api/sport/request",10);
         navigation_state_pub_ = this->create_publisher<std_msgs::msg::Int8>("navigation_state", 1);
 
@@ -341,6 +369,7 @@ private:
     void createClients()
     {
         pan_tilt_cli_ = this->create_client<PanTiltSrv>("pan_tilt");
+        centering_ptz_cli_ = this->create_client<EmptySrv>("centering");
         zoom_cli_     = this->create_client<ZoomSrv>("zoom");
         killall_cli_  = this->create_client<TriggerSrv>("killall");
         save_map_cli_  = this->create_client<TriggerSrv>("lio/save_map");
@@ -435,25 +464,25 @@ private:
             case L2_R2:
                 if(!l2r2){ l2r2=true; killall_cli_->async_send_request(std::make_shared<TriggerSrv::Request>()); }
                 break;
-            case L1_A:
-                if(!l1a){ l1a=true; ss.data="L1A"; key_pub_->publish(ss);} break;
+            // case L1_A:
+            //     if(!l1a){ l1a=true; ss.data="L1A"; key_pub_->publish(ss);} break;
 
-            case L1_X:
-                if(!l1x){ l1x=true; ss.data="L1X"; key_pub_->publish(ss);} break;
-            case L1_Y:
-                if(!l1y){ l1y=true; ss.data="L1Y"; key_pub_->publish(ss);} break;
-            case L1_UP:
-                if(!l1up){ l1up=true; ss.data="L1UP";key_pub_->publish(ss);} break;
-            case L1_B:
-                if(!l1b){ l1b=true; ss.data="L1B"; key_pub_->publish(ss);} break;
-            case L1_START:
-                if(!l1start){ l1start=true; 
-                    save_map_cli_->async_send_request(std::make_shared<TriggerSrv::Request>()); 
-                    std_msgs::msg::Int8 navigation_state_msg;
-                    navigation_state_msg.data = static_cast<int>(KEY_ACTION::SAVE_MAP);
-                    navigation_state_pub_->publish(navigation_state_msg);
-                }
-                break;
+            // case L1_X:
+            //     if(!l1x){ l1x=true; ss.data="L1X"; key_pub_->publish(ss);} break;
+            // case L1_Y:
+            //     if(!l1y){ l1y=true; ss.data="L1Y"; key_pub_->publish(ss);} break;
+            // case L1_UP:
+            //     if(!l1up){ l1up=true; ss.data="L1UP";key_pub_->publish(ss);} break;
+            // case L1_B:
+            //     if(!l1b){ l1b=true; ss.data="L1B"; key_pub_->publish(ss);} break;
+            // case L1_START:
+            //     if(!l1start){ l1start=true; 
+            //         save_map_cli_->async_send_request(std::make_shared<TriggerSrv::Request>()); 
+            //         std_msgs::msg::Int8 navigation_state_msg;
+            //         navigation_state_msg.data = static_cast<int>(KEY_ACTION::SAVE_MAP);
+            //         navigation_state_pub_->publish(navigation_state_msg);
+            //     }
+            //     break;
             case START:
                 l2r2=l1a=l1x=l1y=l1up=l1b=false; break;
             default:
@@ -464,6 +493,11 @@ private:
     /* ========================  INTERNAL HELPERS =========================== */
     void ptz(const std::string &dir)
     {
+        auto now = std::chrono::steady_clock::now();
+        if (now - last_ptz_time_ < std::chrono::seconds(1)) {
+            return; // ignore, still on cooldown
+        }
+        last_ptz_time_ = now;
         auto req = std::make_shared<PanTiltSrv::Request>();
         req->direction = dir;
         req->speed     = 100;
@@ -473,6 +507,11 @@ private:
 
     void zoom(int delta)
     {
+        auto now = std::chrono::steady_clock::now();
+        if (now - last_zoom_time_ < std::chrono::seconds(1)) {
+            return; // ignore, still on cooldown
+        }
+        last_zoom_time_ = now;
         zoom_level_ = std::clamp(zoom_level_ + delta, 1, 30);
         auto req = std::make_shared<ZoomSrv::Request>();
         req->target = zoom_level_;
