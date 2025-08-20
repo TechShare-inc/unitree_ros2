@@ -49,6 +49,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(unitree_interfaces REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(rosidl_typesupport_cpp REQUIRED)
 # Find OpenCV
 find_package(OpenCV REQUIRED)
 find_package(cv_bridge REQUIRED)
@@ -84,7 +85,7 @@ ament_target_dependencies(b2_dds ${DEPENDENCY_LIST})
 ament_target_dependencies(h1_dds ${DEPENDENCY_LIST})
 ament_target_dependencies(thermo_monitor ${DEPENDENCY_LIST})
 ament_target_dependencies(go2_front_camera ${DEPENDENCY_LIST} )
-ament_target_dependencies(motion_switcher ${DEPENDENCY_LIST} )
+ament_target_dependencies(motion_switcher ${DEPENDENCY_LIST} rosidl_typesupport_cpp)
 
 
 install(TARGETS 

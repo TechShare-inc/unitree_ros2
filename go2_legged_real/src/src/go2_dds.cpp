@@ -16,10 +16,37 @@
 #include <semaphore.h>  // sem_t, sem_init, sem_post
 #include <unistd.h>     // close
 
+enum class CurrentState {
+    Agile,              
+    Damping,
+    Crouch,
+    StandingLock,
+
+};
+
+enum class NewRobotState : uint32_t
+{
+    Agile              = 100,
+    Damping            = 1001,
+    StandingLock       = 1002,
+    Crouch             = 1004,  // (also appears as 2006 – see note below)
+};
+
+enum class OldRobotState : uint32_t
+{
+    Agile              = 9,
+    Damping            = 7,
+    StandingLock       = 6,
+    Crouch             = 5,  // (also appears as 2006 – see note below)
+};
+
+
 class GO2DDS : public DogDDSBase<DogModel::GO2>
 {
 public:
-    GO2DDS() : DogDDSBase<DogModel::GO2>() {}
+    GO2DDS() : DogDDSBase<DogModel::GO2>() {
+        old_gait_req_.header.identity.api_id = 2049;
+    }
 
 protected:
     /* ------------------------------------------------------------------ */
@@ -27,12 +54,21 @@ protected:
     /* ------------------------------------------------------------------ */
 
 
+    
     void onSportState(const SportState &msg)
     {
         sport_state_  = msg;
-        driving_mode_ = msg.mode;
-        // publish old‑API switch if needed
-        if(driving_mode_ == 9) req_pub_->publish(old_gait_req_);
+        int temp_mode = msg.mode;
+        if (!using_new_state_ && temp_mode == 0){
+            using_new_state_ = true; // switch to new mapping
+        }
+        if(using_new_state_)
+            driving_mode_ = msg.error_code;
+        else
+            driving_mode_ = temp_mode;
+
+
+        if(driving_mode_ == map_desired(CurrentState::Agile)) req_pub_->publish(old_gait_req_);
         fillOdomMsg();
     }
 
@@ -45,31 +81,19 @@ protected:
         bool do_publish      = true;
         unitree_api::msg::Request req;
 
-        // if (msg.start && msg.right)
-        // {
-        //     RCLCPP_INFO(get_logger(), "→ forward climbing (ignored for GO2)");
-        //     continuous_gait = true;         // kept for symmetry, but not sent
-        //     do_publish      = false;
-        // }
-        // else if (msg.start && msg.left)
-        // {
-        //     RCLCPP_INFO(get_logger(), "→ reverse climbing (ignored for GO2)");
-        //     continuous_gait = true;
-        //     do_publish      = false;
-        // }
-        if (msg.l2 && msg.a && (driving_mode_!=5 && driving_mode_!=7))
+        if (msg.l2 && msg.a && (driving_mode_!= map_desired(CurrentState::Crouch) && driving_mode_!= map_desired(CurrentState::Damping) ))
         {
             RCLCPP_INFO(get_logger(), "→ StandDown");
             sport_client_.StandDown(req);
             startIgnoreTimer();
         }
-        else if (msg.l2 && msg.a && (driving_mode_==5 || driving_mode_==7))
+        else if (msg.l2 && msg.a && (driving_mode_== map_desired(CurrentState::Crouch) || driving_mode_== map_desired(CurrentState::Damping)))
         {
             RCLCPP_INFO(get_logger(), "→ StandUp");
             sport_client_.StandUp(req);
             startIgnoreTimer();
         }
-        else if (msg.l2 && msg.b && driving_mode_==7)
+        else if (msg.l2 && msg.b && driving_mode_== map_desired(CurrentState::Crouch))
         {
             RCLCPP_INFO(get_logger(), "→ Damp");
             sport_client_.Damp(req);
@@ -125,12 +149,12 @@ protected:
         }
 
         // regular move
-        if (driving_mode_ == 6)
+        if (driving_mode_ == map_desired(CurrentState::StandingLock))
         {
             sport_client_.BalanceStand(req);   // ensure balanced first
             req_pub_->publish(req);
         }
-        else if (driving_mode_ == 9)           // switch to old‑AI if needed
+        else if (driving_mode_ == map_desired(CurrentState::Agile))           // switch to old‑AI if needed
         {
             req_pub_->publish(old_gait_req_);
             return;
@@ -149,21 +173,18 @@ protected:
         std::scoped_lock lk(mutex_);
 
         static unitree_api::msg::Request req_; // Unitree Go2 ROS2 request message
-        if (driving_mode_ == 6){
-            sport_client_.BalanceStand(req_);
-            req_pub_->publish(req_);
-        }
+
         if (std::abs(msg.velocity[0]) < 1e-9 &&
             std::abs(msg.velocity[1]) < 1e-9 &&
             std::abs(msg.yaw_speed) < 1e-9)
         {
             return;
         }
-        if (driving_mode_ == 6){
+        if (driving_mode_ == map_desired(CurrentState::StandingLock)){
             sport_client_.BalanceStand(req_);
             req_pub_->publish(req_);
             return;
-        } else if (driving_mode_ == 9){
+        } else if (driving_mode_ == map_desired(CurrentState::Agile)){
             req_pub_->publish(old_gait_req_);
             return;
         }
@@ -181,6 +202,27 @@ protected:
 
 private:
     /* 2‑second ignore window after posture change ----------------------- */
+
+    int map_desired(CurrentState s) const {
+        if (using_new_state_) {
+            switch (s) {
+                case CurrentState::Agile:            return static_cast<int>(NewRobotState::Agile);
+                case CurrentState::Damping:         return static_cast<int>(NewRobotState::Damping);
+                case CurrentState::Crouch:          return static_cast<int>(NewRobotState::Crouch);
+                case CurrentState::StandingLock: return static_cast<int>(NewRobotState::StandingLock);
+                // ↑ Adjust this mapping if LookUp should resolve to a different new-state code.
+            }
+        } else {
+            switch (s) {
+                case CurrentState::Agile:            return static_cast<int>(OldRobotState::Agile);
+                case CurrentState::Damping:         return static_cast<int>(OldRobotState::Damping);
+                case CurrentState::Crouch:          return static_cast<int>(OldRobotState::Crouch);
+                case CurrentState::StandingLock: return static_cast<int>(OldRobotState::StandingLock);
+            }
+        }
+        return -1; // unreachable
+    }
+
     void startIgnoreTimer()
     {
         ignore_cmd_ = true;
@@ -193,6 +235,7 @@ private:
     bool                            ignore_cmd_   = false;
     rclcpp::TimerBase::SharedPtr    ignore_timer_;
     rclcpp::TimerBase::SharedPtr    delay_timer_;
+    bool using_new_state_ = false;  // default: old mapping
 };
 
 /* --------------------------------  main  ---------------------------------- */

@@ -1,8 +1,7 @@
-Unitree Go2机器人ros2支持
 [TOC]
-# 说明
+# Unitree 机器人ros2支持
 Unitree SDK2基于cyclonedds实现了一个易用的机器人数据通信机制，应用开发者可以利用这一接口实现机器人的数据通讯和指令控制(**支持Go2、B2和H1**)。 https://github.com/unitreerobotics/unitree_sdk2
-ROS2也使用DDS作为通讯工具，因此Go2、B2和H1机器人的底层可以兼容ros2，使用ros2自带的msg直接进行通讯和控制，而无需通过sdk接口转发。
+ROS2也使用DDS作为通讯工具，因此Go2、B2和H1机器人的底层可以兼容ros2，使用ros2自带的  msg 直接进行通讯和控制，而无需通过sdk接口转发。
 
 # 环境配置
 ## 系统要求
@@ -10,7 +9,13 @@ ROS2也使用DDS作为通讯工具，因此Go2、B2和H1机器人的底层可以
 |系统|ros2 版本|
 |--|--|
 |Ubuntu 20.04|foxy|
-|Ubuntu 22.04|humble|
+|Ubuntu 22.04|humble (推荐)|
+
+如果你想直接使用 `Docker` 开发环境，你可以参考 `.devcontainer` 文件夹中的 `Dockerfile` 相关内容。
+你也可以使用 VSCode 或其他 IDE 的 Dev Container 功能来创建一个开发环境，或者使用 `Github` 的 `codespace` 快速创建一个开发环境。
+如果你确实碰到了编译问题，可以参考 `.github/workflows/` 中的编译脚本，或者在 `issues` 中提问。
+
+## 安装 Unitree 机器人ros2功能包
 
 以下以ros2 foxy为例，如需要其他版本的ros2，在相应的地方替换foxy为当前的ros2版本名称即可：
 
@@ -21,11 +26,11 @@ ctrl+alt+T打开终端，克隆仓库：https://github.com/unitreerobotics/unitr
 git clone https://github.com/unitreerobotics/unitree_ros2
 ```
 其中
-- **cyclonedds_ws**文件夹为编译和安装Go2机器人ROS2 msg的工作空间，在子文件夹cyclonedds_ws/unitree/unitree_go和cyclonedds_ws/unitree/unitree_api中定义了Go2状态获取和控制相关的ros2 msg。
-- **Go2_ROS2_example**文件夹为Go2机器人ROS2下的相关例程。
+- **cyclonedds_ws** 文件夹为编译和安装 Unitree 机器人ROS2 msg的工作空间，在子文件夹cyclonedds_ws/unitree/unitree_go和cyclonedds_ws/unitree/unitree_api中定义了机器人状态获取和控制相关的ros2 msg。
+- **example** 文件夹为 Unitree 机器人 ROS2 下的相关例程。
 
 
-## 安装Unitree Go2机器人ros2功能包
+## 安装 Unitree 机器人ros2功能包
 
 ### 1. 安装依赖
 
@@ -33,8 +38,8 @@ git clone https://github.com/unitreerobotics/unitree_ros2
 sudo apt install ros-foxy-rmw-cyclonedds-cpp
 sudo apt install ros-foxy-rosidl-generator-dds-idl
 ```
-### 2. 编译cyclone-dds
-由于Go2机器人使用的是cyclonedds 0.10.2 版本，因此需要先更改ROS2的dds实现。见：https://docs.ros.org/en/foxy/Concepts/About-Different-Middleware-Vendors.html
+### 2. 编译cyclone-dds(如果使用 Humble 可跳过此步骤)
+由于 Unitree 机器人(sdk2 版本) 使用的是cyclonedds 0.10.2，因此需要先更改ROS2的dds实现。见：https://docs.ros.org/en/foxy/Concepts/About-Different-Middleware-Vendors.html
 
 编译cyclonedds前请确保在启动终端时**没有**自动source ros2相关的环境变量，否则会导致cyclonedds编译报错。如果安装ROS2时在~/.bashrc中添加了 " source /opt/ros/foxy/setup.bash "，需要修改 ~/.bashrc 文件将其删除：
 
@@ -53,13 +58,14 @@ cd ~/unitree_ros2/cyclonedds_ws/src
 git clone https://github.com/ros2/rmw_cyclonedds -b foxy
 git clone https://github.com/eclipse-cyclonedds/cyclonedds -b releases/0.10.x 
 cd ..
+# 如果编译报错，尝试先运行：`export LD_LIBRARY_PATH=/opt/ros/foxy/lib`
 colcon build --packages-select cyclonedds #编译cyclonedds
 ```
 
 
 
 ### 3. 编译unitree_go和unitree_api功能包
-编译好cyclone-dds后就需要ros2相关的依赖来完成Go2 功能包的编译，因此编译前需要先source ROS2 的环境变量。
+编译好 cyclone-dds 后就需要 ros2 相关的依赖来完成 Unitree 功能包的编译，因此编译前需要先 source ROS2 的环境变量。
 
 ```bash
 source /opt/ros/foxy/setup.bash #source ROS2 环境变量
@@ -67,20 +73,20 @@ colcon build #编译工作空间下的所有功能包
 ```
 
 
-## 连接到Go2机器人
+## 连接到机器人
 
 ### 1. 配置网络 
 
-使用网线连接 Go2 和计算机，使用ifconfig 查看网络信息，确认机器人连接到的以太网网卡。（例如如图中的enp3s0，以实际为准）
+使用网线连接 Unitree 机器人和计算机，使用 ifconfig 查看网络信息，确认机器人连接到的以太网网卡。（例如如图中的enp3s0，以实际为准）
 ![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/W4j6OJ2awDgbO3p8/img/5d22c143-5dad-4964-81f3-55864906a9f0.png)
 
 接着打开网络设置，找到机器人所连接的网卡，进入 IPv4 ，将 IPv4 方式改为手动，地址设置为192.168.123.99，子网掩码设置为255.255.255.0，完成后点击应用，等待网络重新连接。
 ![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/W4j6OJ2awDgbO3p8/img/721e1660-04dc-42b7-8d6e-14799afe2165.png)
 
-打开 unitree_ros2_setup.sh 文件
+打开 setup.sh 文件
 
 ```bash
-sudo gedit ~/unitree_ros2/unitree_ros2_setup.sh
+sudo gedit ~/unitree_ros2/setup.sh
 ```
 bash 的内容如下：
 ```bash
@@ -93,17 +99,32 @@ export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces>
                             <NetworkInterface name="enp3s0" priority="default" multicast="default" />
                         </Interfaces></General></Domain></CycloneDDS>'
 ```
-其中 "enp3s0" 为Go2机器人所连接的网卡名称，根据实际情况修改为对应的网卡名称。在终端中执行：
+其中 "enp3s0" 为 Unitree 机器人所连接的网卡名称，根据实际情况修改为对应的网卡名称。在终端中执行：
 ```bash
-source ~/unitree_ros2/unitree_ros2_setup.sh
+source ~/unitree_ros2/setup.sh
 ```
-即可完成Go2机器人开发环境的设置。
-如果不希望每次打开新终端都执行一次bash脚本，也可将unitree_ros2_setup.sh中的内容写入到 ~/.bashrc中，但是当系统有多个ros环境共存需要注意。
+即可完成 Unitree 机器人开发环境的设置。
+如果不希望每次打开新终端都执行一次 bash 脚本，也可将 `setup.sh` 中的内容写入到 ~/.bashrc中，但是当系统有多个ros环境共存需要注意。
+
+**补充：** 如果电脑没有连接到机器人，但仍希望能使用 unitree ros2 实现仿真等功能， 可以使用本地回环 "lo" 作为网卡
+```bash
+source ~/unitree_ros2/setup_local.sh # 使用 "lo" 作为网卡
+```
+或
+```bash
+source ~/unitree_ros2/setup_default.sh # 不指定网卡
+```
+
 
 
 ### 2. 连接测试 
 完成上述配置后，建议重启一下电脑再进行测试。
-确保机器人连接正确，打开终端输入ros2 topic list，可以看见如下话题：
+确保机器人连接正确，打开终端输入: 
+```bash
+source ~/unitree_ros2/setup.sh
+ros2 topic list
+```
+可以看见如下话题：
 ![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/W4j6OJ2awDgbO3p8/img/5e45e8ec-9248-47eb-8380-798ed0ef468b.png)
 
 打开终端输入ros2 topic echo /sportmodestate 后，可以看见该话题的数据如下图所示，说明机器人与电脑已经正常通讯：
@@ -111,14 +132,30 @@ source ~/unitree_ros2/unitree_ros2_setup.sh
 
 
 ### 3. 编译和测试例程
+
+示例源代码位于 `/example/src/src`。
+- common：所有机器人的通用函数。
+- g1/low_level/g1_low_level_example：G1 的低级别控制
+- h1-2/low_level/low_level_ctrl_hg：H1-2 的低电平控制
+- low_level_ctrl：Go2/B2 的低级别控制
+- read_low_state：读取 Go2/B2 的低级别状态
+- read_low_state_hg：读取 G1/H1/H1-2 的低级别状态
+- read_motion_state：读取 Go2/B2 的运动模式状态
+- read_ wireless_controller：读取 G1/Go2/B2 的无线控制器状态
+- record_bag：Ros Bag 录制示例。
+- go2/go2_sport_client：Go2 的高级控制。
+- go2/go2_stand_example：Go2 的站立示例。
+- go2/go2_robot_state_client：的机器人状态示例。
+
 ctrl+alt+T打开终端，在终端中执行如下命令，编译测试例程：
 ```bash
-cd ~/unitree_ros2/Go2_ROS2_example
+source ~/unitree_ros2/setup.sh
+cd ~/unitree_ros2/example
 colcon build
 ```
-编译完成后z在终端中运行:
+编译完成后在终端中运行:
 ```bash
-./install/go2_demo/lib/go2_demo/read_motion_state 
+./install/unitree_ros2_example/bin/read_motion_state 
 ```
 可以看到终端中输出的机器人状态信息：
 ```bash
@@ -181,8 +218,8 @@ float32[12] foot_speed_body //足端相对于机体的速度
 ```
 高层状态信息的具体解释可参考：https://support.unitree.com/home/zh/developer/sports_services
 
-读取高层状态的完整例程位于 /Go2_ROS2_example/src/read_motion_state.cpp
-编译完例程后，在终端中运行./install/go2_demo/lib/go2_demo/read_motion_state，可查看运行结果。
+读取高层状态的完整例程位于 /example/src/read_motion_state.cpp
+编译完例程后，在终端中运行./install/unitree_ros2_example/bin/read_motion_state，可查看运行结果。
 
 ### 2. 低层状态获取
 低层状态为机器人的关节电机、电源信息等底层状态。通过订阅"lf/lowstate"或"lowstate" topic，可实现低层状态的获取。低层状态的msg定义如下：
@@ -226,8 +263,8 @@ uint32 lost
 uint32[2] reserve
 ```
 低层状态信息的具体解释可参考: https://support.unitree.com/home/zh/developer/Basic_services
-读取低层状态的完整例程序位于：Go2_ROS2_example/src/read_low_state.cpp
-在终端中运行./install/go2_demo/lib/go2_demo/read_low_state，可查看低层状态获取例程的运行结果。
+读取低层状态的完整例程序位于：example/src/read_low_state.cpp
+在终端中运行./install/unitree_ros2_example/bin/read_low_state，可查看低层状态获取例程的运行结果。
 
 ### 3. 遥控器状态获取
 通过订阅"/wirelesscontroller" topic可获取遥控器的摇杆数值和按键键值。遥控器状态的msg定义如下
@@ -241,12 +278,12 @@ uint16 keys //键值
 ```
 遥控器状态和遥控器键值的相关定义可参考：https://support.unitree.com/home/zh/developer/Get_remote_control_status
 
-读取遥控器状态的完整例程序见：Go2_ROS2_example/src/read_wireless_controller.cpp
-在终端中运行./install/go2_demo/lib/go2_demo/read_low_state，可查看遥控器状态获取例程的运行结果。
+读取遥控器状态的完整例程序见：example/src/read_wireless_controller.cpp
+在终端中运行./install/unitree_ros2_example/bin/read_low_state，可查看遥控器状态获取例程的运行结果。
 
 ## 机器人控制
 ### 1. 运动控制
-Go2机器人的运动指令是通过请求响应的方式实现的，通过订阅"/api/sport/request"，并发送运动unitree_api::msg::Request消息可以实现高层的运动控制。其中不同运动接口的Request消息可调用SportClient(位于/Go2_ROS2_example/src/common/ros2_sport_client.cpp)类来获取，例如实现Go2的姿态控制：
+Go2机器人的运动指令是通过请求响应的方式实现的，通过订阅"/api/sport/request"，并发送运动unitree_api::msg::Request消息可以实现高层的运动控制。其中不同运动接口的Request消息可调用SportClient(位于/example/src/common/ros2_sport_client.cpp)类来获取，例如实现Go2的姿态控制：
 ```C++
  //创建一个ros2 pubilsher
 rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
@@ -259,8 +296,8 @@ req_puber->publish(req); //发布数据
 ```
 关于SportClient运动控制接口的具体解释可参考：https://support.unitree.com/home/zh/developer/sports_services
 
-高层运动控制的完整例程位于：Go2_ROS2_example/src/sport_mode_ctrl.cpp
-在终端中运行./install/go2_demo/lib/go2_demo/sport_mode_ctrl，等待1s后，机器人会沿着x方向来回走动。
+高层运动控制的完整例程位于：example/src/sport_mode_ctrl.cpp
+在终端中运行./install/unitree_ros2_example/bin/sport_mode_ctrl，等待1s后，机器人会沿着x方向来回走动。
 
 
 ### 2. 电机控制
@@ -294,7 +331,7 @@ unsigned long reserve[3];   //保留位
 ```
 低层指令的具体解释可参考：https://support.unitree.com/home/zh/developer/Basic_services
 
-电机控制的完整例程见Go2_ROS2_example/src/low_level_ctrl.cpp，编译后在终端执行./install/go2_demo/lib/go2_demo/sport_mode_ctrl，左后腿的机身电机和小腿电机会转动到对应关节角度。
+电机控制的完整例程见example/src/low_level_ctrl.cpp，编译后在终端执行./install/unitree_ros2_example/bin/sport_mode_ctrl，左后腿的机身电机和小腿电机会转动到对应关节角度。
 
 ## Rviz 可视化
 由于Go2机器人底层兼容了ROS2的topic机制，因此可以使用rviz工具来可视化Go2机器人的状态信息。下面以查看机器人的点云数据为例：
@@ -302,7 +339,7 @@ unsigned long reserve[3];   //保留位
 ```bash
 ros2 topic list
 ```
-![image](https://z1.ax1x.com/2023/10/20/piFtteJ.png)
+![image](docs/image/piFtteJ.png)
 
 可以找到雷达点云的 topic：
 ```bash
@@ -313,7 +350,7 @@ utlidar/cloud
 ros2 topic echo --no-arr /utlidar/cloud
 ```
 可以看到点云数据的frame_id为utlidar_lidar
-![image](https://z1.ax1x.com/2023/10/20/piFtdF1.png)
+![image](docs/image/piFtdF1.png)
 
 最后打开rviz2：
 ```
@@ -321,7 +358,7 @@ ros2 run rviz2 rviz2
 ```
 在rviz2添加Go2点云topic: utlidar/cloud。修改world_frame为utlidar_lidar即可看到雷达输出的点云。
 
-![image](https://z1.ax1x.com/2023/10/20/piFtsyD.png)
-![image](https://z1.ax1x.com/2023/10/20/piFtyOe.png)
+![image](docs/image/piFtsyD.png)
+![image](docs/image/piFtyOe.png)
 
 

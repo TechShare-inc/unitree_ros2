@@ -13,7 +13,13 @@ Tested systems and ROS2 distro
 |systems|ROS2 distro|
 |--|--|
 |Ubuntu 20.04|foxy|
-|Ubuntu 22.04|humble|
+|Ubuntu 22.04|humble (recommend)|
+
+If you want to directly use the `Docker development environment`, you can refer to the `Dockerfile` related content in the `.devcontainer` folder.
+You can also use the `Dev Container feature of VSCode` or other IDEs to create a development environment, or use `Github's codespace` to quickly create a development environment.
+If you do encounter compilation issues, you can refer to the compilation scripts in `. github/workflows/` or ask questions in `issues`.
+
+##Install Unitree Robot Ros2 Feature Pack
 
 Taking ROS2 foxy as an example, if you need another version of ROS2, replace "foxy" with the current ROS2 version name in the corresponding place:
 
@@ -26,7 +32,7 @@ git clone https://github.com/unitreerobotics/unitree_ros2
 ```
 where:
 - **cyclonedds_ws**: The workspace of Unitree ros2 package. The msg for Unitree robot are supplied in the subfolder cyclonedds_ws/unitree/unitree_go and cyclonedds_ ws/unitree/unitree_api.
-- **Go2_ROS2_example**: The workspace of some examples.
+- **example**: The workspace of some examples.
 
 
 ## Install Unitree ROS2 package
@@ -37,7 +43,7 @@ sudo apt install ros-foxy-rmw-cyclonedds-cpp
 sudo apt install ros-foxy-rosidl-generator-dds-idl
 ```
 
-### 2. Compile cyclone dds
+### 2. Compile cyclone dds (If using Humble, this step can be skipped)
 The cyclonedds version of Unitree robot is 0.10.2. To communicate with Unitree robots using ROS2, it is necessary to change the dds implementation. See：https://docs.ros.org/en/foxy/Concepts/About-Different-Middleware-Vendors.html
 
 Before compiling cyclonedds, please ensure that ros2 environment has **NOT** been sourced when starting the terminal. Otherwise, it may cause errors in compilation.
@@ -59,6 +65,7 @@ cd ~/unitree_ros2/cyclonedds_ws/src
 git clone https://github.com/ros2/rmw_cyclonedds -b foxy
 git clone https://github.com/eclipse-cyclonedds/cyclonedds -b releases/0.10.x 
 cd ..
+# If build failed, try run: `export LD_LIBRARY_PATH=/opt/ros/foxy/lib` first.
 colcon build --packages-select cyclonedds #Compile cyclone-dds package
 ```
 
@@ -78,9 +85,9 @@ Connect Unitree robot and the computer using Ethernet cable. Then, use ifconfig 
 Next, open the network settings, find the network interface that the robot connected.In IPv4 setting, change the IPv4 mode to manual, set the address to 192.168.123.99, and set the mask to 255.255.255.0. After completion, click apply and wait for the network to reconnect.
 ![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/W4j6OJ2awDgbO3p8/img/721e1660-04dc-42b7-8d6e-14799afe2165.png)
 
-Open unitree_ros2_setup.sh file.
+Open setup.sh file.
 ```bash
-sudo gedit ~/unitree_ros2/unitree_ros2_setup.sh
+sudo gedit ~/unitree_ros2/setup.sh
 ```
 ```bash
 #!/bin/bash
@@ -97,10 +104,18 @@ Modify it to the corresponding network interface according to the actual situati
 
 Source the environment to setup the ROS2 support of Unitree robot: 
 ```bash
-source ~/unitree_ros2/unitree_ros2_setup.sh
+source ~/unitree_ros2/setup.sh
 ```
 If you don't want to source the bash script every time when a new terminal opens, you can write the content of bash script into ~/.bashrc, but attention should be paid when there are multiple ROS environments coexisting in the system.
 
+If your computer is not connected to the robot but you still want to use Unitree ROS2 for simulation and other functions, you can use the local loopback "lo" as the network interface.
+```bash
+source ~/unitree_ros2/setup_local.sh # use "lo" as the network interface
+```
+or
+```bash
+source ~/unitree_ros2/setup_default.sh # No network network interface specified 
+```
 
 
 ### 2. Connect and test
@@ -108,7 +123,7 @@ After completing the above configuration, it is recommended to restart the compu
 
 Ensure that the network of robot is connected correctly, open a terminal and input:  
 ```bash
-source ~/unitree_ros2/unitree_ros2_setup.sh
+source ~/unitree_ros2/setup.sh
 ros2 topic list
 ```
 You can see the following topics:
@@ -119,15 +134,30 @@ Input ros2 topic echo /sportmodestate，you can see the data of the topic as 
 
 
 ### 3. Examples
+
+The source code of examples locates at `/example/src/src`.
+- common: Common functions for all robots.
+- g1/lowlevel/g1_low_level_example: Low level control for G1
+- h1-2/lowlevel/low_level_ctrl_hg: Low level control for H1-2
+- low_level_ctrl: Low level control for Go2/B2
+- read_low_state: Read the low state from Go2/B2
+- read_low_state_hg: Read the low state from G1/H1/H1-2
+- read_motion_state: Read the sport mode state from Go2/B2
+- read_ wireless_controller: Read the state of wireless controller from G1/Go2/B2
+- record_bag: Ros bag recording example.
+- go2/go2_sport_client: High level control for Go2.
+- go2/go2_stand_example: Stand example for Go2.
+- go2/go2_robot_state_client：Robot State Example for Go2。
+
 Open a terminal and input:
 ```bash
-source ~/unitree_ros2/unitree_ros2_setup.sh
-cd ~unitree_ros2/Go2_ROS2_example
+source ~/unitree_ros2/setup.sh
+cd ~/unitree_ros2/example
 colcon build
 ```
 After compilation, run in the terminal:
 ```bash
-./install/go2_demo/lib/go2_demo/read_motion_state 
+./install/unitree_ros2_example/bin/read_motion_state 
 ```
 You can see the robot status information output from the terminal:
 
@@ -191,9 +221,9 @@ float32[12] foot_speed_body //foot velcities in body frame
 ```
 For details, see：https://support.unitree.com/home/en/developer/sports_services.
 
-Complete examples is in /Go2_ROS2_example/src/read_motion_state.cpp. Run in the terminal:
+Complete examples is in /example/src/read_motion_state.cpp. Run in the terminal:
 ```bash
-./install/go2_demo/lib/go2_demo/read_motion_state 
+./install/unitree_ros2_example/bin/read_motion_state 
 ```
 
 ### 2. Low-level state
@@ -238,7 +268,7 @@ uint32 lost
 uint32[2] reserve
 ```
 For details, see: https://support.unitree.com/home/en/developer/Basic_services
-Complete examples is in Go2_ROS2_example/src/read_low_state.cpp. 
+Complete examples is in example/src/read_low_state.cpp. 
 
 ### 3. Wireless controller
 
@@ -253,14 +283,14 @@ uint16 keys // key values
 ```
 For details, see: https://support.unitree.com/home/en/developer/Get_remote_control_status
 
-Complete examples is in Go2_ROS2_example/src/read_wireless_controller.cpp.
+Complete examples is in example/src/read_wireless_controller.cpp.
 
 
 ## Robot control
 ### 1. Sportmode 
 Sportmode control is implemented by request/response mechanism. Sportmode control  can be achieved by sending unitree_api::msg::Request msg to the "/api/sport/request" topic.
 
-The Request msg for different sportmode interfaces can be obtained by the SportClient (/Go2_ROS2_example/src/common/ros2_sport_client.cpp) class. For example, control the robot to reach a desired attitude: 
+The Request msg for different sportmode interfaces can be obtained by the SportClient (/example/src/common/ros2_sport_client.cpp) class. For example, control the robot to reach a desired attitude: 
 ```C++
  //Create a ros2 pubilsher 
 rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
@@ -273,7 +303,7 @@ req_puber->publish(req); // Publish request msg
 ```
 For details about SportClient：https://support.unitree.com/home/en/developer/sports_services
 
-Complete examples is in：Go2_ROS2_example/src/sport_mode_ctrl.cpp. Run ./install/go2_demo/lib/go2_demo/sport_mode_ctrl in terminal. After 1 second of program startup, the robot will walk back and forth in the x direction.
+Complete examples is in：example/src/sport_mode_ctrl.cpp. Run ./install/unitree_ros2_example/bin/sport_mode_ctrl in terminal. After 1 second of program startup, the robot will walk back and forth in the x direction.
 
 
 ### 2. Motor control
@@ -306,7 +336,7 @@ unsigned long reserve[3];
 ```
 For details about low_cmd：https://support.unitree.com/home/en/developer/Basic_services
 
-Complete examples is in：go2_ROS2_example/src/low_level_ctrl.cpo. Run ./install/go2_demo/lib/go2_demo/sport_mode_ctrl in terminal. The hip motor and calf motor of the RL leg will rotate to the corresponding joint angle.
+Complete examples is in：example/src/low_level_ctrl.cpo. Run ./install/unitree_ros2_example/bin/sport_mode_ctrl in terminal. The hip motor and calf motor of the RL leg will rotate to the corresponding joint angle.
 
 ## Rviz
 We can also use rviz to visualize Unitree robot data.The following is an example of visualizing robot lidar data:
@@ -315,7 +345,7 @@ Firstly, list all topics：
 ```bash
 ros2 topic list
 ```
-![image](https://z1.ax1x.com/2023/10/20/piFtteJ.png)
+![image](docs/image/piFtteJ.png)
 
 We can find the topic of lida：
 ```bash
@@ -326,7 +356,7 @@ Then, echo frame_id of lidar：
 ros2 topic echo --no-arr /utlidar/cloud
 ```
 where frame_id: utlidar_lidar
-![image](https://z1.ax1x.com/2023/10/20/piFtdF1.png)
+![image](docs/image/piFtdF1.png)
 
 Finally, run rviz：
 ```
@@ -335,7 +365,7 @@ ros2 run rviz2 rviz2
 Add Pointcloud topic: utlidar/cloud in rviz2 and modify Fixed frame to utlidar_lidar. Then, the lidar data is displayed in rviz2. 
 
 
-![image](https://z1.ax1x.com/2023/10/20/piFtsyD.png)
-![image](https://z1.ax1x.com/2023/10/20/piFtyOe.png)
+![image](docs/image/piFtsyD.png)
+![image](docs/image/piFtyOe.png)
 
 
