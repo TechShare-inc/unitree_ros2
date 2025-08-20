@@ -44,9 +44,7 @@ enum class OldRobotState : uint32_t
 class GO2DDS : public DogDDSBase<DogModel::GO2>
 {
 public:
-    GO2DDS() : DogDDSBase<DogModel::GO2>() {
-        old_gait_req_.header.identity.api_id = 2049;
-    }
+    GO2DDS() : DogDDSBase<DogModel::GO2>() {}
 
 protected:
     /* ------------------------------------------------------------------ */
@@ -61,6 +59,7 @@ protected:
         int temp_mode = msg.mode;
         if (!using_new_state_ && temp_mode == 0){
             using_new_state_ = true; // switch to new mapping
+            old_gait_req_.header.identity.api_id = 2049;
         }
         if(using_new_state_)
             driving_mode_ = msg.error_code;
