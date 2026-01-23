@@ -44,7 +44,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
         "msg/PathPoint.msg"
         "msg/Req.msg"
         "msg/Res.msg"
-        "msg/Stat.msg"
         "msg/SportModeCmd.msg"
         "msg/SportModeState.msg"
         "msg/TimeSpec.msg"
